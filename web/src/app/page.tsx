@@ -1,0 +1,120 @@
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { LOCATIONS, getLocation } from '@/lib/config';
+import { eventsForLocation } from '@/lib/db';
+import { computeEvent } from '@/lib/service';
+import { createEventAction } from './actions';
+import { LocationBar } from './LocationBar';
+import { fmt } from '@/lib/money';
+
+export const dynamic = 'force-dynamic';
+
+export default async function Home({
+  searchParams,
+}: { searchParams: Promise<{ location?: string }> }) {
+  const sp = await searchParams;
+  const locationId = sp.location ?? LOCATIONS[0].id;
+  const loc = getLocation(locationId);
+  if (!loc) redirect(`/?location=${LOCATIONS[0].id}`);
+
+  const events = eventsForLocation(loc.id);
+
+  async function create(fd: FormData) {
+    'use server';
+    const id = await createEventAction(fd);
+    redirect(`/events/${id}?location=${fd.get('locationId')}`);
+  }
+
+  return (
+    <>
+      <LocationBar active={loc.id} />
+      <div className="wrap">
+        <h1>{loc.name}</h1>
+        <p className="sub">
+          Showing only this location&rsquo;s events. Both venues share one Square
+          account, so the location is applied as a filter on every query.
+        </p>
+
+        <div className="panel">
+          <h2>New show</h2>
+          <form action={create}>
+            <input type="hidden" name="locationId" value={loc.id} />
+            <div className="grid g4">
+              <div>
+                <label className="f" htmlFor="eventDate">Date</label>
+                <input id="eventDate" type="date" name="eventDate" required
+                       defaultValue={new Date().toISOString().slice(0, 10)} />
+              </div>
+              <div>
+                <label className="f" htmlFor="showType">Show type</label>
+                <select id="showType" name="showType">
+                  {loc.showTypes.map((s) => (
+                    <option key={s.id} value={s.label}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="f" htmlFor="showName">Show name</label>
+                <input id="showName" type="text" name="showName" placeholder="Forever Country" />
+              </div>
+              <div>
+                <label className="f" htmlFor="guestAttendance">Guests</label>
+                <input id="guestAttendance" className="num" type="number" name="guestAttendance" min="0" />
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <button className="btn" type="submit">Create show</button>
+            </div>
+          </form>
+        </div>
+
+        <div className="panel">
+          <h2>Shows</h2>
+          {events.length === 0 ? (
+            <p className="muted">No shows yet for {loc.name}.</p>
+          ) : (
+            <div className="scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th><th>Show</th><th>Type</th>
+                    <th className="num">Total tips</th>
+                    <th className="num">Check</th><th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.map((e) => {
+                    let total = '—', check: string | null = null;
+                    try {
+                      const r = computeEvent(e.id, loc.id);
+                      if (r) {
+                        total = fmt(r.totalCents);
+                        check = fmt(r.reconciliationCents);
+                      }
+                    } catch { check = 'error'; }
+                    return (
+                      <tr key={e.id}>
+                        <td>{e.event_date}</td>
+                        <td>{e.show_name || <span className="muted">untitled</span>}</td>
+                        <td className="muted">{e.show_type}</td>
+                        <td className="num">{total}</td>
+                        <td className="num">
+                          {check === '0.00'
+                            ? <span className="ok">0.00</span>
+                            : <span className="bad">{check}</span>}
+                        </td>
+                        <td className="num">
+                          <Link href={`/events/${e.id}?location=${loc.id}`}>Open</Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}

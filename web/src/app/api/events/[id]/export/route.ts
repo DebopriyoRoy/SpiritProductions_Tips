@@ -1,0 +1,37 @@
+import { NextRequest } from 'next/server';
+import { loadEvent, toEngineInput } from '@/lib/service';
+import { calculate } from '@/lib/tips';
+import { buildWorkbook } from '@/lib/xlsxExport';
+import { getLocation } from '@/lib/config';
+
+export async function GET(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const { id } = await ctx.params;
+  const locationId = req.nextUrl.searchParams.get('location') ?? '';
+  const loc = getLocation(locationId);
+  if (!loc) return new Response('Unknown location', { status: 400 });
+
+  const loaded = loadEvent(id, loc.id);
+  if (!loaded) return new Response('Not found for this location', { status: 404 });
+
+  const r = calculate(toEngineInput(loaded.event, loaded.cast, loaded.staff));
+  const buf = await buildWorkbook(r, {
+    locationName: loc.name,
+    showType: loaded.event.show_type,
+    showName: loaded.event.show_name,
+    eventDate: loaded.event.event_date,
+    guestAttendance: loaded.event.guest_attendance,
+  });
+
+  const safe = (loaded.event.show_name || 'show').replace(/[^a-z0-9]+/gi, '_');
+  return new Response(new Uint8Array(buf), {
+    headers: {
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition':
+        `attachment; filename="${loc.id}_${safe}_${loaded.event.event_date}.xlsx"`,
+    },
+  });
+}
