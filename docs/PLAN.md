@@ -10,20 +10,22 @@ matching the existing Spirit Theater workbook.
 
 ---
 
-## 0. Blocker to clear before Phase 1
+## 0. Status
 
-**The Excel sheet is not in this repository.** This repo has zero commits and
-no spreadsheet file anywhere on disk — the working container is created fresh
-each session, so a file attached to an earlier chat does not persist here.
+**The sample workbooks are in the repo** (`main`): three files covering
+Aug 26, Aug 28 and Sep 3, 2026. They are analysed in full in
+[`EXCEL_ANALYSIS.md`](./EXCEL_ANALYSIS.md). That analysis corrected several
+assumptions in an earlier draft of this plan — most importantly that the unit
+of work is **a show night, not a pay period**, and that the sheets contain
+**no dollar amounts at all**.
 
-That sheet is the specification for three things we cannot guess:
-- the exact tip-allocation math currently used by hand,
-- the column layout and formatting the export must reproduce,
-- which roles participate in the pool and at what weight.
+**Git:** read access to the repo works. **Push is blocked** — the Claude GitHub
+App is not installed on `DebopriyoRoy/SpiritProductions_Tips`, so commits are
+local only until that is fixed at
+https://github.com/apps/claude/installations/select_target.
 
-**Action:** commit the workbook to `docs/reference/` in this repo (or paste it
-into the session again). Everything in Phase 4 and Phase 6 is blocked on it;
-Phases 1–3 and 5 can proceed in parallel without it.
+**Still blocking design work:** the money question (Q1 in the analysis) and the
+ACC format question (Q5). Everything else can proceed.
 
 ---
 
@@ -102,19 +104,21 @@ unless there is an existing Python codebase to live alongside.
 location            square_location_id (unique), name, timezone, currency, active
 team_member         square_team_member_id (unique), display_name, active
 team_member_location  team_member_id, location_id        -- staff can work both venues
-pay_period          location_id, start_date, end_date, status, FK-unique(location,start,end)
+event               location_id, event_date, show_name, guest_attendance,
+                    staff_meals_note, source_pdf_ref, source_reported_hours,
                     status: draft | syncing | synced | finalized | exported
-timecard            square_timecard_id (unique), location_id, period_id, team_member_id,
+                    unique(location_id, event_date, show_name)
+timecard            square_timecard_id (unique), location_id, event_id, team_member_id,
                     start_at, end_at, break_minutes, worked_minutes,
                     wage_title, hourly_rate_cents, declared_cash_tip_cents,
                     source(synced|manual), is_overridden, synced_payload jsonb
-tip_transaction     square_payment_id (unique), location_id, period_id, order_id,
+tip_transaction     square_payment_id (unique), location_id, event_id, order_id,
                     created_at, tip_cents, method(card|cash), team_member_id nullable
 tip_rule_set        location_id, effective_from, pool_scope, weights jsonb,
                     min_hours_eligible, cash_tips_pooled bool, rounding_policy
-tip_allocation      period_id, team_member_id, worked_minutes, weight,
+tip_allocation      event_id, team_member_id, worked_minutes, weight,
                     pool_cents, share_cents, manual_adjustment_cents, note
-sync_run            location_id, period_id, started_at, finished_at, status,
+sync_run            location_id, event_id, started_at, finished_at, status,
                     counts jsonb, error_detail
 audit_log           actor_id, entity, entity_id, action, before jsonb, after jsonb, at
 ```
@@ -194,33 +198,43 @@ ACC at all.
 
 ---
 
-## 6. Tip allocation engine
+## 6. Tip hours engine
 
-Pure function, no I/O, fully unit-testable:
+The sample workbooks compute **hours, not dollars** (analysis §2). So the engine
+is built in two separable layers, and layer 2 is only built if the answer to Q1
+is "yes, we need dollars".
+
+**Layer 1 — tip hours (confirmed, build now)**
 
 ```
-allocate(timecards, tipTransactions, ruleSet) -> allocations
+tipHours(timecards, syntheticParticipants, ruleSet) -> rows + reconciliation
 ```
 
-Configurable per location via `tip_rule_set`:
-- **Pool composition** — card tips always; cash tips pooled or kept by the
-  declarer (`cash_tips_pooled`).
-- **Eligibility** — minimum hours, which `wage_title` roles participate.
-- **Weighting** — pro-rata by minutes worked, optionally scaled by a role weight
-  (e.g. bartender 1.0, usher 0.5).
-- **Rounding** — integer cents with **largest-remainder distribution**, so the
-  sum of shares equals the pool exactly, every time. The leftover cents go where
-  the rule set says (house, or longest-hours member).
+- Pull each timecard's worked minutes; subtract breaks; round to 2dp.
+- Apply eligibility: Cast & Band and Tech excluded by default (analysis §7);
+  per-row override with a mandatory note (analysis §5).
+- Append synthetic participants — `Office` at a flat 6.00 h.
+- Emit the reconciliation triple: calculated included hours, source reported
+  total (manual, optional), difference.
 
-**Invariant, asserted in code and tested:** `sum(share_cents) == pool_cents`.
-No exceptions. A tip sheet that does not reconcile to the penny is a tip sheet
-nobody trusts.
+Excluded rows are **retained and shown**, never dropped — matching the SUMIFS
+behaviour in the sheet.
 
-Manual adjustments live in `manual_adjustment_cents` with a required note — the
-computed figure and the human correction stay separately visible, so the
-adjustment is always explainable.
+**Layer 2 — dollar allocation (only if Q1 says so)**
 
----
+```
+allocate(tipHourRows, poolCents, ruleSet) -> allocations
+```
+
+Pro-rata by tip hours, integer cents throughout, largest-remainder distribution
+so `sum(share_cents) == pool_cents` exactly — asserted in code and tested. No
+floats for money, ever. Where the pool comes from (Square card tips vs a figure
+someone types in) is itself part of Q1.
+
+**Golden-file tests.** The three sample workbooks are regression fixtures: given
+their hour rows, the engine must reproduce 90.10, 69.56 and 73.44 exactly, and
+must reproduce Paul Philpot's exclusion on Sep 3. This is the cheapest
+correctness guarantee available and should land in Phase 5.
 
 ## 7. UI
 
@@ -245,17 +259,24 @@ Everything on every screen is scoped to the selected location.
 
 | Phase | Work | Depends on |
 |---|---|---|
-| 0 | Get workbook into repo; Square sandbox credentials; confirm pooling rules | **user** |
+| 0 | Install GitHub App; answer Q1 (dollars?) and Q5 (ACC format) | **user** |
 | 1 | Repo scaffold, Next.js + Prisma + Postgres, app auth, location model | — |
 | 2 | Square OAuth, Locations + Team sync, location switcher | 1 |
-| 3 | Timecard sync, sync runs, sync report, timezone handling | 2 |
-| 4 | Payments/tips ingestion, unattributed-tip workflow | 3 |
-| 5 | Allocation engine + per-location rule sets | 4, 0 |
-| 6 | UI: grid, editing, overrides, audit | 3–5 |
-| 7 | Excel export matching the existing sheet | 6, 0 |
-| 8 | Hardening: scoping tests, roles, webhooks, deploy, runbook | 7 |
+| 3 | Event model, timecard sync per event date, timezone handling | 2 |
+| 4 | Identity: alias table, match-confirmation UI | 3 |
+| 5 | Tip hours engine + golden-file tests against the three workbooks | 3, 4 |
+| 6 | UI: Tip Hours grid, Night Staff sheet, exclusions with notes, reconciliation | 5 |
+| 7 | Excel export reproducing the exact layout and formatting (analysis §11) | 6 |
+| 8 | Dollar allocation layer — **only if Q1 requires it** | 5, 7 |
+| 9 | Hardening: scoping tests, roles, deploy, paper-parallel runbook | 7 |
 
-Phase 0 is genuinely blocking for 5 and 7. Phases 1–4 and 6 can start now.
+Phases 1–3 can start immediately. Phase 8 may not exist at all.
+
+**Paper-parallel rollout.** For the first few events, run the app alongside the
+existing paper process and enter the form's handwritten total into
+`source_reported_hours`. The difference row then reads as "Square vs the form"
+and proves the integration before anyone trusts it. That is the same safeguard
+the workbook already uses, pointed at a new source.
 
 ---
 
@@ -263,26 +284,36 @@ Phase 0 is genuinely blocking for 5 and 7. Phases 1–4 and 6 can start now.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| `Payment.team_member_id` empty (no cash drawer login) | Tips cannot be attributed | Surface unattributed total every sync; manual assignment UI; train staff to log in |
-| Timezone boundary errors | Shifts land in the wrong pay period | Per-location timezone from Square; boundary tests around midnight and DST |
-| Open timecards at sync time | Hours understated | Block finalize while open timecards exist in range |
+| Name matching wrong (Marila/Maria, William/Ash) | Tips to the wrong person | Square `team_member_id` as identity; alias table; human confirms every proposed match once |
+| Staff don't clock in/out in Square | No timecard, no hours, person silently missing | Compare Night Staff roster against synced timecards; flag anyone present but unclocked |
+| Cast & Band / Tech never in Square | Night Staff sheet incomplete | Manual rows alongside synced ones |
+| Timezone boundary errors | Late shifts land on the wrong show date | Per-location timezone from Square; tests around midnight and DST |
+| Open timecards at sync time | Hours understated | Block finalize while open timecards exist for the event date |
+| Two shows on one date | Hours split across the wrong event | `unique(location, date, show)`; assign timecards to a show by time window |
 | Square API version drift | Silent response shape changes | Pin API version; contract tests against sandbox |
-| Float money arithmetic | Off-by-cents, lost trust | Integer cents only; reconciliation invariant enforced in code |
-| Re-sync overwriting manual edits | Corrections silently lost | `is_overridden` flag; conflicts reported, never auto-resolved |
+| Float money arithmetic (if Phase 8 happens) | Off-by-cents, lost trust | Integer cents only; reconciliation invariant enforced |
+| Re-sync overwriting manual edits | Corrections and exclusion notes lost | `is_overridden`; conflicts reported, never auto-resolved |
 | Cross-location leakage | Wrong pay, real harm | Scoping enforced at data layer + tested (§5) |
 
 ---
 
 ## 10. Open questions
 
-1. **The workbook** — can you commit it to this repo?
-2. **Pooling rules** — is the pool split purely pro-rata by hours, or weighted by
-   role? Do ACC and Spirit use the same rules?
-3. **Cash tips** — pooled, or kept by whoever declared them?
-4. **Period length** — weekly, biweekly, per-event?
-5. **Users** — who needs access, and should a manager see only their own venue?
-6. **Square access** — who administers the Square account, and can we get sandbox
-   credentials to develop against?
-7. **Historical data** — how far back should the first sync reach?
-8. **Downstream** — does the export feed a payroll system, or is it read by a
-   person?
+Ordered by how much they block. Full detail in
+[`EXCEL_ANALYSIS.md`](./EXCEL_ANALYSIS.md) §13.
+
+1. **Does the app need to produce dollar amounts, or only tip hours?** The
+   sample sheets contain no money whatsoever. If dollars, where does the pool
+   total come from — Square card tips, or a figure someone enters? *This decides
+   whether Phase 8 exists.*
+2. **Does ACC use the same two-sheet format**, same roles, same exclusion rules?
+   If it differs, the export needs per-location templates.
+3. Is `Lundrigan, William` the same person as `Lundrigan, Ash`?
+4. What is the `Office` row's flat 6.00 hours, and is it also 6.00 at ACC?
+5. Do Cast & Band and Tech clock into Square at all?
+6. Is 8.00 hours a cap, or a coincidence in this sample?
+7. Should `Source reported total` remain permanently, or retire after the
+   paper-parallel period?
+8. One workbook per event, or one per month with a tab per show?
+9. Who needs access, and should a manager see only their own venue?
+10. Square sandbox credentials — who administers the account?
