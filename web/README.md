@@ -22,6 +22,20 @@ npm test         # 22 tests, including golden tests against the real figures
 npm run build
 ```
 
+### Screenshots
+
+With the app running, capture the UI to `screenshots/` (gitignored):
+
+```bash
+npm run screenshots
+```
+
+Covers the shows list, the event sheet, the cast and staff tables, per-person
+payouts, the empty second location, dark mode and a 390px phone viewport.
+Override `BASE_URL`, `SHOTS_DIR`, or `CHROMIUM_PATH` if Playwright cannot find a
+browser. Panel shots are clipped to the panel, with the sticky header pinned
+down so it does not render across the capture.
+
 ## How it calculates
 
 Total tips split by percentage between two groups that are paid on different units:
