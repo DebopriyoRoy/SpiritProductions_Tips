@@ -21,7 +21,7 @@ export default async function EventPage({
   const loc = getLocation(locationId);
   if (!loc) redirect('/');
 
-  const loaded = loadEvent(id, loc.id);
+  const loaded = await loadEvent(id, loc.id);
   if (!loaded) notFound();
   const { event, cast, staff } = loaded;
   const show = getShowType(event.show_type_id);

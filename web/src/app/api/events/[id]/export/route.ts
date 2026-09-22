@@ -13,7 +13,7 @@ export async function GET(
   const loc = getLocation(locationId);
   if (!loc) return new Response('Unknown location', { status: 400 });
 
-  const loaded = loadEvent(id, loc.id);
+  const loaded = await loadEvent(id, loc.id);
   if (!loaded) return new Response('Not found for this location', { status: 404 });
 
   const show = getShowType(loaded.event.show_type_id);

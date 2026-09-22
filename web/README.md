@@ -8,10 +8,14 @@ The calculation it implements is documented in [`../docs/TIP_LOGIC.md`](../docs/
 ## Quick start
 
 ```bash
+cp .env.example .env.local   # set DATABASE_URL (Postgres)
 npm install
-npm run seed     # loads the verified Forever Country show (28 Aug 2026)
-npm run dev      # http://localhost:3000
+npm run migrate              # creates the schema
+npm run seed                 # loads the verified Forever Country show (28 Aug 2026)
+npm run dev                  # http://localhost:3000
 ```
+
+Data lives in **Postgres**. For deployment, see [DEPLOY.md](./DEPLOY.md).
 
 No Square credentials are needed: with `SQUARE_ACCESS_TOKEN` unset the app uses a
 built-in demo provider, and the header shows **Demo data**. Copy `.env.example`

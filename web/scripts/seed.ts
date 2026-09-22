@@ -1,6 +1,6 @@
 /** Seeds the verified Forever Country show so the app has something real in it. */
 import { createEvent, loadEvent } from '../src/lib/service';
-import { db } from '../src/lib/db';
+import { q, one, ensureSchema, pool } from '../src/lib/db';
 import { toCents } from '../src/lib/money';
 
 const WORKED = new Set([
@@ -20,39 +20,45 @@ const HOURS: [string, string, number][] = [
   ['Pasechniuk Maryna', 'OFFICE', 1.5], ['Pasechniuk Yana', 'OFFICE', 1.5],
 ];
 
-const existing = db.prepare(
-  "SELECT id FROM event WHERE location_id='spirit' AND event_date='2026-08-28'")
-  .get() as { id: string } | undefined;
-if (existing) {
-  console.log('Already seeded:', existing.id);
-  process.exit(0);
-}
+async function main() {
+  await ensureSchema();
 
-const id = createEvent({
-  locationId: 'spirit', showTypeId: 'public', eventDate: '2026-08-28',
-  showName: 'Forever Country', guestAttendance: 86,
-});
-
-db.prepare('UPDATE event SET total_override_cents=? WHERE id=?')
-  .run(toCents(1072.53), id);
-
-const loaded = loadEvent(id, 'spirit')!;
-for (const c of loaded.cast) {
-  if (WORKED.has(c.name)) {
-    db.prepare('UPDATE cast_row SET worked=1 WHERE id=?').run(c.id);
+  const existing = await one<{ id: string }>(
+    `SELECT id FROM event WHERE location_id='spirit' AND event_date='2026-08-28'`);
+  if (existing) {
+    console.log('Already seeded:', existing.id);
+    return;
   }
-}
 
-// The roster is already seeded at 0.00 by createEvent, so set hours in place
-// rather than inserting duplicate rows.
-const upd = db.prepare('UPDATE staff_row SET hours=? WHERE id=?');
-for (const [name, section, hours] of HOURS) {
-  const row = loaded.staff.find((s) => s.name === name && s.section === section);
-  if (!row) {
-    console.warn(`  ! no roster row for ${name} (${section}) — skipped`);
-    continue;
+  const id = await createEvent({
+    locationId: 'spirit', showTypeId: 'public', eventDate: '2026-08-28',
+    showName: 'Forever Country', guestAttendance: 86,
+  });
+
+  await q('UPDATE event SET total_override_cents=$1 WHERE id=$2',
+    [toCents(1072.53), id]);
+
+  const loaded = (await loadEvent(id, 'spirit'))!;
+  for (const c of loaded.cast) {
+    if (WORKED.has(c.name)) {
+      await q('UPDATE cast_row SET worked=true WHERE id=$1', [c.id]);
+    }
   }
-  upd.run(hours, row.id);
+
+  // The roster is already seeded at 0.00 by createEvent, so set hours in place
+  // rather than inserting duplicate rows.
+  for (const [name, section, hours] of HOURS) {
+    const row = loaded.staff.find((s) => s.name === name && s.section === section);
+    if (!row) {
+      console.warn(`  ! no roster row for ${name} (${section}) — skipped`);
+      continue;
+    }
+    await q('UPDATE staff_row SET hours=$1 WHERE id=$2', [hours, row.id]);
+  }
+
+  console.log('Seeded Forever Country:', id);
 }
 
-console.log('Seeded Forever Country:', id);
+main()
+  .catch((err) => { console.error(err); process.exitCode = 1; })
+  .finally(() => pool.end());

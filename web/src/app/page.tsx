@@ -17,7 +17,19 @@ export default async function Home({
   const loc = getLocation(locationId);
   if (!loc) redirect(`/?location=${LOCATIONS[0].id}`);
 
-  const events = eventsForLocation(loc.id);
+  const events = await eventsForLocation(loc.id);
+
+  // Compute every row up front: JSX cannot await inside .map().
+  const rows = await Promise.all(events.map(async (e) => {
+    try {
+      const r = await computeEvent(e.id, loc.id);
+      return r
+        ? { e, total: fmt(r.totalCents), check: fmt(r.reconciliationCents) }
+        : { e, total: '—', check: null as string | null };
+    } catch {
+      return { e, total: '—', check: 'error' as string | null };
+    }
+  }));
 
   async function create(fd: FormData) {
     'use server';
@@ -83,16 +95,7 @@ export default async function Home({
                   </tr>
                 </thead>
                 <tbody>
-                  {events.map((e) => {
-                    let total = '—', check: string | null = null;
-                    try {
-                      const r = computeEvent(e.id, loc.id);
-                      if (r) {
-                        total = fmt(r.totalCents);
-                        check = fmt(r.reconciliationCents);
-                      }
-                    } catch { check = 'error'; }
-                    return (
+                  {rows.map(({ e, total, check }) => (
                       <tr key={e.id}>
                         <td>{e.event_date}</td>
                         <td>{e.show_name || <span className="muted">untitled</span>}</td>
@@ -107,8 +110,7 @@ export default async function Home({
                           <Link href={`/events/${e.id}?location=${loc.id}`}>Open</Link>
                         </td>
                       </tr>
-                    );
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>
