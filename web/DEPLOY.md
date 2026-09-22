@@ -61,7 +61,34 @@ location ids with `GET /v2/locations`, or in the Square dashboard.
 Start in **sandbox**. Nothing in this app writes to Square, but a wrong location
 id would pull the wrong venue's timecards into a payout sheet.
 
-## 4. Seed the sample show (optional)
+## 4. Create the first account
+
+**Nobody can sign in until you do this**, including anyone who finds the URL.
+That is deliberate: a fresh deployment is locked, not open.
+
+```bash
+DATABASE_URL='<the pooled Neon string>' \
+ADMIN_EMAIL='you@example.com' \
+ADMIN_PASSWORD='a long passphrase you have not used elsewhere' \
+ADMIN_NAME='Your Name' \
+npm run create-admin
+```
+
+Run it from your own machine against the deployed database. The password is
+never stored as text — only a salted scrypt hash — and it is not saved in
+Vercel's environment.
+
+Then sign in and use **People** in the top bar to add everyone else. Each person
+gets a role and a set of venues:
+
+- **Admin** — everything, including managing people.
+- **Manager** — shows only, and only at the venues you tick. Leave every venue
+  unticked to grant all of them.
+
+A manager scoped to Spirit cannot open, export or edit an ACC show: the venue
+simply is not there, and a direct link returns "not found".
+
+## 5. Seed the sample show (optional)
 
 To load the verified Forever Country night into the deployed database:
 
@@ -90,11 +117,24 @@ Neon and Vercel both have free tiers that comfortably fit a few shows a week.
 Neon's free project sleeps when idle, so the first request after a quiet spell
 takes a second or two to wake.
 
+## Security notes
+
+- Sessions are random 32-byte tokens in an httpOnly, SameSite=Lax cookie,
+  marked Secure in production. The database stores only a SHA-256 of the token,
+  so a database leak does not hand over live sessions.
+- Passwords are salted scrypt hashes, compared in constant time. Minimum 12
+  characters.
+- Eight failed sign-ins lock an account for 15 minutes. The failure message is
+  the same whether the email or the password was wrong, so the form cannot be
+  used to discover which addresses have accounts.
+- Changing someone's password, or deactivating them, signs them out everywhere
+  immediately.
+- There is no self-service sign-up and no password-reset email. An admin sets
+  passwords on the People page. That suits a small team and removes a whole
+  class of account-takeover risk; it does mean an admin must be reachable.
+
 ## Before real payouts
 
-- The app has **no user accounts**. Anyone with the URL can see and edit every
-  show. Add authentication before putting real payout data in it, or keep the
-  deployment private.
 - ACC's **public** show rules are assumed to match Spirit's and are unconfirmed.
 - The Gower sheet lists no office staff yet its formula adds 6 office hours;
   the app seeds the public office roster there. Confirm who should receive them.

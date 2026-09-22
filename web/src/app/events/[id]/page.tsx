@@ -5,6 +5,7 @@ import { loadEvent, toEngineInput } from '@/lib/service';
 import { calculate, SECTION_LABEL, Section } from '@/lib/tips';
 import { fmt } from '@/lib/money';
 import { LocationBar } from '@/app/LocationBar';
+import { requireUser, canSeeLocation, NotAuthenticated } from '@/lib/auth';
 import { saveEventAction, syncAction, addStaffAction, deleteStaffAction } from '@/app/actions';
 
 export const dynamic = 'force-dynamic';
@@ -17,9 +18,17 @@ export default async function EventPage({
 }) {
   const { id } = await params;
   const sp = await searchParams;
+  let user;
+  try {
+    user = await requireUser();
+  } catch (err) {
+    if (err instanceof NotAuthenticated) redirect('/login');
+    throw err;
+  }
   const locationId = sp.location ?? LOCATIONS[0].id;
   const loc = getLocation(locationId);
-  if (!loc) redirect('/');
+  // An unpermitted venue is indistinguishable from one that does not exist.
+  if (!loc || !canSeeLocation(user, loc.id)) notFound();
 
   const loaded = await loadEvent(id, loc.id);
   if (!loaded) notFound();
@@ -43,7 +52,7 @@ export default async function EventPage({
 
   return (
     <>
-      <LocationBar active={loc.id} />
+      <LocationBar active={loc.id} user={user} />
       <div className="wrap">
         <h1>{event.show_name || 'Untitled show'}</h1>
         <p className="sub">

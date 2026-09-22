@@ -8,29 +8,48 @@ import { Pool, type QueryResultRow } from 'pg';
  * "-pooler" host, Supabase's port 6543). A direct connection will exhaust the
  * server's connection limit under load.
  */
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error(
-    'DATABASE_URL is not set. Copy .env.example to .env.local and point it at ' +
-    'your Postgres database.',
-  );
+/**
+ * The pool is created on first use, not at import. A missing DATABASE_URL then
+ * surfaces as a clear runtime error instead of crashing the build — and pure
+ * helpers that merely import this module stay usable without a database.
+ */
+let _pool: Pool | null = null;
+
+export function getPool(): Pool {
+  if (_pool) return _pool;
+
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      'DATABASE_URL is not set. Copy .env.example to .env.local and point it ' +
+      'at your Postgres database.',
+    );
+  }
+  const isLocal = /@(localhost|127\.0\.0\.1)[:/]/.test(connectionString);
+
+  _pool = new Pool({
+    connectionString,
+    max: Number(process.env.PGPOOL_MAX ?? (isLocal ? 5 : 2)),
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
+    // Managed Postgres requires TLS; a local dev server does not offer it.
+    ssl: isLocal ? undefined : { rejectUnauthorized: false },
+  });
+  return _pool;
 }
 
-const isLocal = /@(localhost|127\.0\.0\.1)[:/]/.test(connectionString);
-
-export const pool = new Pool({
-  connectionString,
-  max: Number(process.env.PGPOOL_MAX ?? (isLocal ? 5 : 2)),
-  idleTimeoutMillis: 10_000,
-  connectionTimeoutMillis: 10_000,
-  // Managed Postgres requires TLS; a local dev server does not offer it.
-  ssl: isLocal ? undefined : { rejectUnauthorized: false },
-});
+/** Closes the pool. For scripts; the server keeps it for the process lifetime. */
+export const pool = {
+  query: ((text: string, params?: unknown[]) =>
+    getPool().query(text, params as never)) as Pool['query'],
+  connect: (() => getPool().connect()) as Pool['connect'],
+  end: async () => { if (_pool) { await _pool.end(); _pool = null; } },
+};
 
 export async function q<T extends QueryResultRow>(
   text: string, params: unknown[] = [],
 ): Promise<T[]> {
-  const res = await pool.query<T>(text, params);
+  const res = await getPool().query<T>(text, params);
   return res.rows;
 }
 
@@ -44,7 +63,7 @@ export async function one<T extends QueryResultRow>(
 export async function tx<T>(fn: (c: {
   q: <R extends QueryResultRow>(text: string, params?: unknown[]) => Promise<R[]>;
 }) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
+  const client = await getPool().connect();
   try {
     await client.query('BEGIN');
     const out = await fn({
@@ -62,6 +81,30 @@ export async function tx<T>(fn: (c: {
 }
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS app_user (
+  id             TEXT PRIMARY KEY,
+  email          TEXT NOT NULL UNIQUE,
+  name           TEXT NOT NULL DEFAULT '',
+  password_hash  TEXT NOT NULL,
+  role           TEXT NOT NULL DEFAULT 'manager',
+  -- Location ids this user may see. Empty means every location (admins).
+  locations      TEXT[] NOT NULL DEFAULT '{}',
+  active         BOOLEAN NOT NULL DEFAULT true,
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
+  locked_until   TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS user_session (
+  -- sha256 of the cookie value: a database leak does not hand over sessions.
+  token_hash TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_user ON user_session(user_id);
+
 CREATE TABLE IF NOT EXISTS event (
   id                   TEXT PRIMARY KEY,
   location_id          TEXT NOT NULL,
@@ -134,7 +177,7 @@ let schemaReady: Promise<void> | null = null;
 export function ensureSchema(): Promise<void> {
   if (!schemaReady) {
     schemaReady = (async () => {
-      const client = await pool.connect();
+      const client = await getPool().connect();
       try {
         await client.query('SELECT pg_advisory_lock($1)', [SCHEMA_LOCK_ID]);
         await client.query(SCHEMA);
@@ -153,6 +196,12 @@ export const uid = () =>
 /** Dates come back as JS Date; the app works in plain YYYY-MM-DD strings. */
 export const isoDate = (d: Date | string) =>
   typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10);
+
+export interface UserRow {
+  id: string; email: string; name: string; password_hash: string;
+  role: string; locations: string[]; active: boolean;
+  failed_attempts: number; locked_until: string | null; created_at: string;
+}
 
 export interface EventRow {
   id: string; location_id: string; show_type: string; show_type_id: string;

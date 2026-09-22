@@ -5,14 +5,22 @@ import { q, one, tx, uid, ensureSchema } from '@/lib/db';
 import { createEvent, syncFromSquare } from '@/lib/service';
 import { toCents } from '@/lib/money';
 import { getLocation } from '@/lib/config';
+import { requireLocation, requireUser, destroySession } from '@/lib/auth';
+import { redirect } from 'next/navigation';
 
 const num = (v: FormDataEntryValue | null, d = 0) => {
   const n = Number(String(v ?? '').trim());
   return Number.isFinite(n) ? n : d;
 };
 
+export async function signOutAction() {
+  await destroySession();
+  redirect('/login');
+}
+
 export async function createEventAction(fd: FormData) {
   const locationId = String(fd.get('locationId'));
+  await requireLocation(locationId);
   const id = await createEvent({
     locationId,
     showTypeId: String(fd.get('showTypeId')),
@@ -24,8 +32,12 @@ export async function createEventAction(fd: FormData) {
   return id;
 }
 
-/** Every mutation re-checks that the row belongs to the active location. */
+/**
+ * Every mutation re-checks two things: that the signed-in user may see this
+ * venue, and that the row actually belongs to it.
+ */
 async function assertScope(eventId: string, locationId: string) {
+  await requireLocation(locationId);
   await ensureSchema();
   const row = await one<{ id: string }>(
     'SELECT id FROM event WHERE id = $1 AND location_id = $2', [eventId, locationId]);

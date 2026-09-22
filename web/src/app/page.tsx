@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { LOCATIONS, getLocation, showTypesFor } from '@/lib/config';
+import { requireUser, canSeeLocation, visibleLocations, NotAuthenticated } from '@/lib/auth';
 import { eventsForLocation } from '@/lib/db';
 import { computeEvent } from '@/lib/service';
 import { createEventAction } from './actions';
@@ -13,9 +14,30 @@ export default async function Home({
   searchParams,
 }: { searchParams: Promise<{ location?: string }> }) {
   const sp = await searchParams;
-  const locationId = sp.location ?? LOCATIONS[0].id;
+  let user;
+  try {
+    user = await requireUser();
+  } catch (err) {
+    if (err instanceof NotAuthenticated) redirect('/login');
+    throw err;
+  }
+
+  const allowed = visibleLocations(user);
+  if (allowed.length === 0) {
+    return (
+      <div className="wrap">
+        <h1>No venues</h1>
+        <p className="sub">
+          Your account has no venue access yet. Ask an administrator to grant it
+          on the People page.
+        </p>
+      </div>
+    );
+  }
+
+  const locationId = sp.location ?? allowed[0].id;
   const loc = getLocation(locationId);
-  if (!loc) redirect(`/?location=${LOCATIONS[0].id}`);
+  if (!loc || !canSeeLocation(user, loc.id)) redirect(`/?location=${allowed[0].id}`);
 
   const events = await eventsForLocation(loc.id);
 
@@ -39,7 +61,7 @@ export default async function Home({
 
   return (
     <>
-      <LocationBar active={loc.id} />
+      <LocationBar active={loc.id} user={user} />
       <div className="wrap">
         <h1>{loc.name}</h1>
         <p className="sub">

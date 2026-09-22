@@ -9,7 +9,8 @@
     "test": "vitest run",
     "seed": "tsx scripts/seed.ts",
     "screenshots": "tsx scripts/screenshots.ts",
-    "migrate": "tsx scripts/migrate.ts"
+    "migrate": "tsx scripts/migrate.ts",
+    "create-admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

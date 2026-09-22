@@ -12,6 +12,10 @@ cp .env.example .env.local   # set DATABASE_URL (Postgres)
 npm install
 npm run migrate              # creates the schema
 npm run seed                 # loads the verified Forever Country show (28 Aug 2026)
+
+ADMIN_EMAIL='you@example.com' ADMIN_PASSWORD='a long passphrase' \
+  npm run create-admin       # nobody can sign in until this runs
+
 npm run dev                  # http://localhost:3000
 ```
 
@@ -97,12 +101,29 @@ src/lib/money.ts       integer cents, largest-remainder allocation
 src/lib/square/        live client + demo provider behind one interface
 src/lib/mapping.ts     Square wage title -> sheet section
 src/lib/xlsxExport.ts  workbook export
+src/lib/auth.ts        passwords, sessions, roles, venue authorisation
+src/lib/auth.test.ts   hashing and authorisation tests
+src/app/login/         sign in
+src/app/admin/         people and access
 src/app/               UI and server actions
 ```
 
+## Accounts
+
+Email and password, stored in Postgres — no third-party identity provider.
+Sessions are random tokens in an httpOnly cookie; the database keeps only their
+SHA-256. Passwords are salted scrypt hashes.
+
+Two roles: **admin** (everything, plus the People page) and **manager** (shows
+only). Each person is granted a set of venues; an empty set means all of them. A
+manager scoped to Spirit cannot see, export or edit an ACC show — the gate is
+`requireLocation()`, applied in every page, API route and server action.
+
+There is no self-service sign-up and no reset email: an admin sets passwords on
+the People page.
+
 ## Not built yet
 
-- User accounts and per-venue permissions
 - The Night Staff attendance sheet
 - Cast identity matching against Square team members (cast may never clock in)
 - ACC's rules are currently a copy of Spirit's and are **unconfirmed**

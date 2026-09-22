@@ -3,6 +3,7 @@ import { loadEvent, toEngineInput } from '@/lib/service';
 import { calculate } from '@/lib/tips';
 import { buildWorkbook } from '@/lib/xlsxExport';
 import { getLocation, getShowType } from '@/lib/config';
+import { currentUser, canSeeLocation } from '@/lib/auth';
 
 export async function GET(
   req: NextRequest,
@@ -10,8 +11,13 @@ export async function GET(
 ) {
   const { id } = await ctx.params;
   const locationId = req.nextUrl.searchParams.get('location') ?? '';
+  const user = await currentUser();
+  if (!user) return new Response('Sign in required', { status: 401 });
+
   const loc = getLocation(locationId);
-  if (!loc) return new Response('Unknown location', { status: 400 });
+  if (!loc || !canSeeLocation(user, loc.id)) {
+    return new Response('Not found', { status: 404 });
+  }
 
   const loaded = await loadEvent(id, loc.id);
   if (!loaded) return new Response('Not found for this location', { status: 404 });
