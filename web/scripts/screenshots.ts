@@ -43,16 +43,24 @@ async function launch(): Promise<Browser> {
   }
 }
 
-async function firstEventId(): Promise<string> {
+/**
+ * Prefer a Public Show: it is the only show type with a cast block, so the
+ * cast panel shot has something to capture. Falls back to any event.
+ */
+async function pickEventId(): Promise<string> {
   const res = await fetch(`${BASE}/?location=spirit`);
   if (!res.ok) throw new Error(`${BASE} returned ${res.status}`);
-  const m = (await res.text()).match(/\/events\/([A-Za-z0-9]+)\?location=/);
-  if (!m) {
-    throw new Error(
-      'No events found. Run "npm run seed" first, then retry.',
-    );
+  const html = await res.text();
+
+  const rows = [...html.matchAll(
+    /<tr>(?:(?!<\/tr>).)*?\/events\/([A-Za-z0-9]+)\?location=(?:(?!<\/tr>).)*?<\/tr>/gs,
+  )];
+  const publicRow = rows.find((m) => /Public Show/.test(m[0]));
+  const chosen = publicRow ?? rows[0];
+  if (!chosen) {
+    throw new Error('No events found. Run "npm run seed" first, then retry.');
   }
-  return m[1];
+  return chosen[1];
 }
 
 interface Shot {
@@ -73,6 +81,12 @@ async function capture(ctx: BrowserContext, shot: Shot) {
     // a clipped element capture. Pin it down for the shot only.
     await page.addStyleTag({ content: 'header.bar{position:static !important}' });
     const el = page.locator('.panel', { hasText: shot.panel }).first();
+    if (await el.count() === 0) {
+      // e.g. the cast panel on a private show, which has no cast block.
+      console.log(`  ${shot.name}: skipped (no "${shot.panel}" panel here)`);
+      await page.close();
+      return;
+    }
     await el.scrollIntoViewIfNeeded();
     await page.waitForTimeout(250);
     await el.screenshot({ path: path.join(OUT, `${shot.name}.png`) });
@@ -86,7 +100,7 @@ async function capture(ctx: BrowserContext, shot: Shot) {
 
 async function main() {
   mkdirSync(OUT, { recursive: true });
-  const id = await firstEventId();
+  const id = await pickEventId();
   const event = `${BASE}/events/${id}?location=spirit`;
 
   const shots: Shot[] = [

@@ -11,6 +11,13 @@ export interface ExportMeta {
   showName: string;
   eventDate: string;
   guestAttendance: number | null;
+  /** Private shows only. */
+  contractService?: string;
+  /** Private shows have no cast block. */
+  hasCast: boolean;
+  /** Only these sections, in this order. */
+  sections: Section[];
+  formula: string;
 }
 
 export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer> {
@@ -37,13 +44,21 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   title(`${meta.locationName} — ${meta.showType}`);
   label('Show', meta.showName);
   label('Date', meta.eventDate);
+  if (meta.contractService) {
+    label('Service requested as per contract', meta.contractService);
+  }
   if (meta.guestAttendance != null) label('Guest attendance', meta.guestAttendance);
   label('Total Tips Collected', r.totalCents / 100, MONEY);
   ws.addRow([]);
 
-  label('Cast & Musicians pool', r.castPoolCents / 100, MONEY);
-  label('Cast shares worked', r.castWorkedRatioTotal, HOURS);
-  label('Cast rate per share', r.castRatePerShare, '#,##0.000000');
+  label('Logic for calculation of Tips', meta.formula);
+  ws.addRow([]);
+
+  if (meta.hasCast) {
+    label('Cast & Musicians pool', r.castPoolCents / 100, MONEY);
+    label('Cast shares worked', r.castWorkedRatioTotal, HOURS);
+    label('Cast rate per share', r.castRatePerShare, '#,##0.000000');
+  }
   label('Staff pool', r.staffPoolCents / 100, MONEY);
   label('Staff total tipping hours', r.staffHoursTotal, HOURS);
   label('Staff rate per hour', r.staffRatePerHour, '#,##0.000000');
@@ -57,7 +72,8 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
     return row;
   };
 
-  // ---- Cast ----
+  // ---- Cast (public shows only) ----
+  if (meta.hasCast) {
   title('Cast & Musicians');
   header(['Name', '', 'Ratio', 'Worked', 'Amount']);
   for (const c of r.cast) {
@@ -72,10 +88,10 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   castTotal.font = { name: 'Arial', size: 10, bold: true };
   castTotal.getCell(5).numFmt = MONEY;
   ws.addRow([]);
+  }
 
   // ---- Staff by section ----
-  const sections: Section[] = ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'];
-  for (const section of sections) {
+  for (const section of meta.sections) {
     const rows = r.staff.filter((s) => s.section === section);
     if (rows.length === 0) continue;
     title(SECTION_LABEL[section]);
@@ -96,8 +112,13 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
 
   // ---- Reconciliation ----
   title('Reconciliation');
-  label('Cast & Musicians total', r.castPoolCents / 100, MONEY);
+  if (meta.hasCast) {
+    label('Cast & Musicians total', r.castPoolCents / 100, MONEY);
+  }
   label('Staff total', r.staffPoolCents / 100, MONEY);
+  if (r.unallocatedCents > 0) {
+    label('UNALLOCATED (not paid out)', r.unallocatedCents / 100, MONEY);
+  }
   label('Total tips collected', r.totalCents / 100, MONEY);
   const chk = label('CHECK (must be 0.00)', r.reconciliationCents / 100, '0.00');
   chk.font = { name: 'Arial', size: 10, bold: true };

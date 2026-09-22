@@ -15,7 +15,7 @@ export async function createEventAction(fd: FormData) {
   const locationId = String(fd.get('locationId'));
   const id = createEvent({
     locationId,
-    showType: String(fd.get('showType')),
+    showTypeId: String(fd.get('showTypeId')),
     eventDate: String(fd.get('eventDate')),
     showName: String(fd.get('showName') ?? ''),
     guestAttendance: fd.get('guestAttendance') ? num(fd.get('guestAttendance')) : null,
@@ -41,7 +41,8 @@ export async function saveEventAction(fd: FormData) {
   db.transaction(() => {
     db.prepare(`UPDATE event SET show_name=?, guest_attendance=?,
       gratuity_cents=?, cash_cents=?, square_cents=?, total_override_cents=?,
-      cast_share_percent=?, office_hours=?, odd_cent_to=? WHERE id=?`).run(
+      cast_share_percent=?, office_hours=?, odd_cent_to=?,
+      contract_service=? WHERE id=?`).run(
       String(fd.get('showName') ?? ''),
       fd.get('guestAttendance') ? num(fd.get('guestAttendance')) : null,
       toCents(num(fd.get('gratuity'))),
@@ -51,6 +52,7 @@ export async function saveEventAction(fd: FormData) {
       num(fd.get('castSharePercent'), 50),
       num(fd.get('officeHours'), 6),
       String(fd.get('oddCentTo') ?? 'staff'),
+      String(fd.get('contractService') ?? ''),
       eventId,
     );
 

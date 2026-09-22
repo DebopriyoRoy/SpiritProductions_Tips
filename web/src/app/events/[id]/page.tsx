@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { getLocation, LOCATIONS, SECTIONS } from '@/lib/config';
+import { getLocation, LOCATIONS, SECTIONS, getShowType } from '@/lib/config';
 import { loadEvent, toEngineInput } from '@/lib/service';
 import { calculate, SECTION_LABEL, Section } from '@/lib/tips';
 import { fmt } from '@/lib/money';
@@ -24,6 +24,7 @@ export default async function EventPage({
   const loaded = loadEvent(id, loc.id);
   if (!loaded) notFound();
   const { event, cast, staff } = loaded;
+  const show = getShowType(event.show_type_id);
   const r = calculate(toEngineInput(event, cast, staff));
 
   const money = (c: number) => fmt(c);
@@ -51,6 +52,11 @@ export default async function EventPage({
           {' · '}<Link href={`/?location=${loc.id}`}>All shows</Link>
         </p>
 
+        <div className="panel" style={{ marginTop: 0 }}>
+          <h3 style={{ margin: '0 0 6px' }}>How this show type pays</h3>
+          <p style={{ margin: 0, fontSize: 14 }}>{show.formula}</p>
+        </div>
+
         {synced && (
           <div className="note">
             Synced from <strong>{synced.p === 'demo' ? 'demo data' : 'Square'}</strong>:
@@ -65,13 +71,23 @@ export default async function EventPage({
             <div className="k">Total tips</div>
             <div className="v">{money(r.totalCents)}</div>
           </div>
-          <div className="kpi">
-            <div className="k">Cast pool ({event.cast_share_percent}%)</div>
-            <div className="v">{money(r.castPoolCents)}</div>
-            <div className="muted" style={{ fontSize: 12 }}>
-              {r.castWorkedRatioTotal} share(s) · {r.castRatePerShare.toFixed(4)} each
+          {show.hasCast ? (
+            <div className="kpi">
+              <div className="k">Cast pool ({event.cast_share_percent}%)</div>
+              <div className="v">{money(r.castPoolCents)}</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {r.castWorkedRatioTotal} share(s) · {r.castRatePerShare.toFixed(4)} each
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="kpi">
+              <div className="k">Cast pool</div>
+              <div className="v muted">—</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                no cast share on this show type
+              </div>
+            </div>
+          )}
           <div className="kpi">
             <div className="k">Staff pool</div>
             <div className="v">{money(r.staffPoolCents)}</div>
@@ -172,10 +188,23 @@ export default async function EventPage({
                 <input id="showName" name="showName" type="text" defaultValue={event.show_name} />
               </div>
             </div>
+            {show.hasContractService && (
+              <>
+                <h3>Service requested as per contract</h3>
+                <input name="contractService" type="text"
+                       defaultValue={event.contract_service}
+                       placeholder="e.g. bar service, plated dinner for 80"
+                       aria-label="Service requested as per contract" />
+              </>
+            )}
+            {!show.hasContractService && (
+              <input type="hidden" name="contractService"
+                     value={event.contract_service} />
+            )}
             <input type="hidden" name="guestAttendance" value={event.guest_attendance ?? ''} />
           </div>
 
-          <div className="panel">
+          {show.hasCast && <div className="panel">
             <h2>Cast &amp; Musicians — paid per head</h2>
             <p className="sub">
               Hours are irrelevant here. Tick who worked; the pool divides by ratio.
@@ -216,7 +245,7 @@ export default async function EventPage({
                 </tbody>
               </table>
             </div>
-          </div>
+          </div>}
 
           <div className="panel">
             <h2>Staff — paid per hour</h2>
@@ -224,7 +253,7 @@ export default async function EventPage({
               One rate across every section: {r.staffRatePerHour.toFixed(6)} per hour.
               Untick to exclude a row without deleting it.
             </p>
-            {SECTIONS.map((section) => {
+            {show.sections.map((section) => {
               const rows = staffBySection(section);
               if (rows.length === 0) return null;
               const t = r.sectionTotals.find((x) => x.section === section)!;
@@ -308,7 +337,7 @@ export default async function EventPage({
             <div>
               <label className="f" htmlFor="newSection">Section</label>
               <select id="newSection" name="section">
-                {SECTIONS.map((s) => (
+                {show.sections.map((s) => (
                   <option key={s} value={s}>{SECTION_LABEL[s]}</option>
                 ))}
               </select>

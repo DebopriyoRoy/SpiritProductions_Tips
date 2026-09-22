@@ -226,3 +226,66 @@ describe('pools with nobody to pay (regression)', () => {
     expect(r.warnings.join(' ')).not.toMatch(/unallocated/i);
   });
 });
+
+describe('private shows pay 100% to staff, with no cast', () => {
+  const GOWER = { castSharePercent: 0, officeHours: 6, oddCentTo: 'staff' as const };
+  const ACC = { castSharePercent: 0, officeHours: 0, oddCentTo: 'staff' as const };
+
+  it('Gower: the whole total goes to staff over Bar+Service+50/50+Kitchen+Office', () => {
+    const r = calculate({
+      gratuityCents: 0, cashTipsCents: 0, squareTipsCents: 0,
+      totalOverrideCents: toCents(1072.53), cast: [], staff, rules: GOWER,
+    });
+    expect(r.castPoolCents).toBe(0);
+    expect(r.staffPoolCents).toBe(107253);
+    expect(r.staffHoursTotal).toBe(69.56);
+    // 1072.53 / 69.56 — double the public show's rate, since there is no split
+    expect(r.staffRatePerHour).toBeCloseTo(15.418775, 5);
+    expect(r.unallocatedCents).toBe(0);
+    expect(r.reconciliationCents).toBe(0);
+    const paid = r.staff.reduce((a, b) => a + b.amountCents, 0);
+    expect(paid).toBe(107253);
+  });
+
+  it('ACC: no 50/50 and no office, so the denominator is smaller', () => {
+    const accStaff = staff.filter(
+      (s) => s.section !== 'FIFTY_FIFTY' && s.section !== 'OFFICE');
+    const r = calculate({
+      gratuityCents: 0, cashTipsCents: 0, squareTipsCents: 0,
+      totalOverrideCents: toCents(1072.53), cast: [], staff: accStaff, rules: ACC,
+    });
+    expect(r.staffPoolCents).toBe(107253);
+    // 36.72 Bar & Service + 22.87 Kitchen, without 3.97 and 6.00
+    expect(r.staffHoursTotal).toBe(59.59);
+    expect(r.staffRatePerHour).toBeCloseTo(17.998490, 5);
+    expect(r.reconciliationCents).toBe(0);
+    expect(r.staff.reduce((a, b) => a + b.amountCents, 0)).toBe(107253);
+    expect(r.sectionTotals.find((t) => t.section === 'FIFTY_FIFTY')!.amountCents).toBe(0);
+    expect(r.sectionTotals.find((t) => t.section === 'OFFICE')!.amountCents).toBe(0);
+  });
+
+  it('ACC does not warn about office hours it does not use', () => {
+    const accStaff = staff.filter(
+      (s) => s.section !== 'FIFTY_FIFTY' && s.section !== 'OFFICE');
+    const r = calculate({
+      gratuityCents: 0, cashTipsCents: 0, squareTipsCents: 0,
+      totalOverrideCents: toCents(1072.53), cast: [], staff: accStaff, rules: ACC,
+    });
+    expect(r.warnings.join(' ')).not.toMatch(/office/i);
+  });
+
+  it('a private show pays each person strictly more than the public show would', () => {
+    const pub = calculate({
+      gratuityCents: 0, cashTipsCents: 0, squareTipsCents: 0,
+      totalOverrideCents: toCents(1072.53), cast, staff, rules: DEFAULT_RULES,
+    });
+    const gow = calculate({
+      gratuityCents: 0, cashTipsCents: 0, squareTipsCents: 0,
+      totalOverrideCents: toCents(1072.53), cast: [], staff, rules: GOWER,
+    });
+    for (const g of gow.staff) {
+      const p = pub.staff.find((x) => x.id === g.id)!;
+      if (g.hours > 0) expect(g.amountCents).toBeGreaterThan(p.amountCents);
+    }
+  });
+});

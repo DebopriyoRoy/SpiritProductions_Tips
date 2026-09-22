@@ -6,8 +6,43 @@ amount and subtotal reproduces exactly.
 
 ## The rule, in one sentence
 
-**Total tips are split 50/50 between Cast & Musicians and Staff. Cast are paid
-per head. Staff are paid per hour.**
+**On a public show, total tips are split 50/50 between Cast & Musicians and
+Staff. Cast are paid per head. Staff are paid per hour.**
+
+## Three show types, three different formulas
+
+The workbook has a sheet per show type, and they are not cosmetic variants —
+the pool, the denominator and the participating sections all differ.
+
+| | Cast share | Staff denominator | Sections |
+|---|---|---|---|
+| **Public Show** | 50% | Bar & Service + 50/50 + Kitchen + 6 office hours | Bar, Service, 50/50, Kitchen, Office |
+| **Private at Gower** (off-site) | **none — 100% to staff** | Bar & Service + 50/50 + Kitchen + 6 office hours | Bar, Service, 50/50, Kitchen, Office |
+| **Private at ACC** | **none — 100% to staff** | **Bar & Service + Kitchen only** | Bar, Service, Kitchen |
+
+As written on the sheets:
+
+- Public — *"Cast and Musicians = 50% of the total Tips collected / Total Of
+  Ratio of Cast who worked that Night"* and *"Service, Kitchen, Bar and Office
+  = 50% of total tips collected / …"*
+- Gower — *"Service, Kitchen, Bar and Office = Total tips collected / …"*
+- ACC — *"Total Tips Collected = total tips collected / Total Hours of (Bar &
+  Service Total Tipping Hours + Kitchen Total Tipping Hours)"*
+
+Neither private sheet has a Cast & Musicians block at all. Both carry a
+**"SERVICE REQUESTED AS PER CONTRACT"** field the public sheet does not.
+
+On the same $1,072.53 and the same hours, the rate therefore differs sharply:
+
+| Show type | Hours | Rate per hour |
+|---|---|---|
+| Public | 69.56 | 7.709388 |
+| Private at Gower | 69.56 | 15.418775 |
+| Private at ACC | 59.59 | 17.998490 |
+
+**The ACC bar has its own roster** on its sheet — Al-Deir Butros, Al-Lahout
+Svitlana, Bobbit Neil, Halley Patrice, Harris John, King Randy, Pynn Montana —
+not the Spirit bartender list.
 
 ## 1. Forming the pool
 
@@ -130,8 +165,11 @@ This is the system's self-check and it must always hold to the penny.
 
 1. **The `15.89`** on the orange banner row of the filled Public Show sheet. It
    is neither the cast rate ($59.59) nor the staff rate ($7.709388). Unexplained.
-2. Whether ACC and the two Private Show variants use the same 50/50 split and
-   the same Office 6.00 hours.
-3. Whether the 50/50 split is fixed policy or varies by show type.
+2. **The Gower sheet lists no Office people, yet its formula still adds 6
+   office hours.** The app seeds the public Office roster there so the hours
+   have somewhere to land — confirm who should receive them, or whether Gower
+   should have no office share at all.
+3. Whether a *public* show at ACC uses Spirit's public rules (the app currently
+   assumes it does) — only the ACC **private** sheet is documented.
 4. Whether `Lundrigan William` and `Lundrigan Ash` are the same person.
 5. Whether 8.00 hours is a per-shift cap.

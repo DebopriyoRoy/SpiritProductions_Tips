@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS event (
   id              TEXT PRIMARY KEY,
   location_id     TEXT NOT NULL,
   show_type       TEXT NOT NULL,
+  show_type_id    TEXT NOT NULL DEFAULT 'public',
+  contract_service TEXT NOT NULL DEFAULT '',
   event_date      TEXT NOT NULL,
   show_name       TEXT NOT NULL DEFAULT '',
   guest_attendance INTEGER,
@@ -67,6 +69,17 @@ CREATE INDEX IF NOT EXISTS idx_cast_event ON cast_row(event_id);
 CREATE INDEX IF NOT EXISTS idx_staff_event ON staff_row(event_id);
 `);
 
+/** Additive migrations for databases created before a column existed. */
+for (const [col, decl] of [
+  ['show_type_id', "TEXT NOT NULL DEFAULT 'public'"],
+  ['contract_service', "TEXT NOT NULL DEFAULT ''"],
+] as const) {
+  const cols = db.prepare('PRAGMA table_info(event)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === col)) {
+    db.exec(`ALTER TABLE event ADD COLUMN ${col} ${decl}`);
+  }
+}
+
 export const uid = () =>
   `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
@@ -87,7 +100,8 @@ export function eventsForLocation(locationId: string) {
 }
 
 export interface EventRow {
-  id: string; location_id: string; show_type: string; event_date: string;
+  id: string; location_id: string; show_type: string; show_type_id: string;
+  contract_service: string; event_date: string;
   show_name: string; guest_attendance: number | null;
   gratuity_cents: number; cash_cents: number; square_cents: number;
   total_override_cents: number | null;

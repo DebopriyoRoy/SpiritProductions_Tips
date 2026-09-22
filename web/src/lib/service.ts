@@ -1,53 +1,52 @@
 import { db, uid, EventRow, CastRow, StaffRowDb, eventForLocation } from './db';
 import { calculate, EventInput, Result, Section, CastEntry, StaffEntry } from './tips';
-import { getLocation } from './config';
+import { getLocation, getShowType, CAST } from './config';
 import { getProvider } from './square';
 import { sectionForWageTitle, isNonTipped, hoursFromTimecard } from './mapping';
 
-export const DEFAULT_CAST = [
-  'Blackwood, Adam|technical', 'Borden, Christa', 'Brennan, Bill',
-  'Byrne, Patrick (Paddy)', 'Collins, Ron', 'Dawe Amanda', 'Dunne, Julia',
-  'Fiore, Marco', 'Fitzpatrick Brandon', 'Jefford, Brad', 'Dicks Jeremy',
-  'Pretty Caitlin', 'Etienne', 'Lasby, Dan', 'Mackey, Nathan', 'Howlett, Nick',
-  'Noftle, Kara', 'Noseworthy, Natalie', 'Parsons, Dana', 'Power, Keith',
-  'Small Andrew', 'Sears, Robyn', 'Fletcher Logan', 'Simms, Jeff',
-  'Stamp, Paul (Boomer)', 'Williams John', 'Wilson, Amy',
-];
-
-export const DEFAULT_OFFICE = [
-  'Hillier Bridget', 'Khrystyna Zavadetska', 'Pasechniuk Maryna', 'Pasechniuk Yana',
-];
-
 export function createEvent(input: {
-  locationId: string; showType: string; eventDate: string; showName: string;
+  locationId: string; showTypeId: string; eventDate: string; showName: string;
   guestAttendance: number | null;
 }): string {
   const loc = getLocation(input.locationId);
   if (!loc) throw new Error(`Unknown location: ${input.locationId}`);
+  if (!loc.showTypeIds.includes(input.showTypeId)) {
+    throw new Error(
+      `${loc.name} does not run "${input.showTypeId}" shows`);
+  }
+  const show = getShowType(input.showTypeId);
   const id = uid();
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO event (id, location_id, show_type, event_date, show_name,
-        guest_attendance, cast_share_percent, office_hours, odd_cent_to)
-      VALUES (?,?,?,?,?,?,?,?,?)`).run(
-      id, input.locationId, input.showType, input.eventDate, input.showName,
-      input.guestAttendance, loc.rules.castSharePercent, loc.rules.officeHours,
-      loc.rules.oddCentTo,
+      INSERT INTO event (id, location_id, show_type, show_type_id, event_date,
+        show_name, guest_attendance, cast_share_percent, office_hours, odd_cent_to)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+      id, input.locationId, show.label, show.id, input.eventDate, input.showName,
+      input.guestAttendance, show.rules.castSharePercent, show.rules.officeHours,
+      show.rules.oddCentTo,
     );
 
-    const ins = db.prepare(
-      'INSERT INTO cast_row (id,event_id,name,ratio,worked,technical,sort) VALUES (?,?,?,?,?,?,?)');
-    DEFAULT_CAST.forEach((raw, i) => {
-      const [name, tech] = raw.split('|');
-      ins.run(uid(), id, name, 1, 0, tech ? 1 : 0, i);
-    });
+    // Private shows have no cast block at all.
+    if (show.hasCast) {
+      const ins = db.prepare(
+        'INSERT INTO cast_row (id,event_id,name,ratio,worked,technical,sort) VALUES (?,?,?,?,?,?,?)');
+      CAST.forEach((raw, i) => {
+        const [name, tech] = raw.split('|');
+        ins.run(uid(), id, name, 1, 0, tech ? 1 : 0, i);
+      });
+    }
 
+    // Seed the whole roster at 0.00 hours, as the workbook lists it.
     const sins = db.prepare(
       'INSERT INTO staff_row (id,event_id,name,section,hours,included,sort) VALUES (?,?,?,?,?,1,?)');
-    DEFAULT_OFFICE.forEach((name, i) => {
-      sins.run(uid(), id, name, 'OFFICE', loc.rules.officeHours / DEFAULT_OFFICE.length, i);
-    });
+    for (const section of show.sections) {
+      const names = show.roster[section] ?? [];
+      // Everyone starts at 0.00 hours, Office included: the app must not
+      // invent who worked. The engine warns while the Office total does not
+      // match the show type's fixed office hours.
+      names.forEach((name, i) => sins.run(uid(), id, name, section, 0, i));
+    }
   })();
 
   return id;

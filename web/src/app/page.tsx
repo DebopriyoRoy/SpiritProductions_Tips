@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { LOCATIONS, getLocation } from '@/lib/config';
+import { LOCATIONS, getLocation, showTypesFor } from '@/lib/config';
 import { eventsForLocation } from '@/lib/db';
 import { computeEvent } from '@/lib/service';
 import { createEventAction } from './actions';
@@ -46,10 +46,10 @@ export default async function Home({
                        defaultValue={new Date().toISOString().slice(0, 10)} />
               </div>
               <div>
-                <label className="f" htmlFor="showType">Show type</label>
-                <select id="showType" name="showType">
-                  {loc.showTypes.map((s) => (
-                    <option key={s.id} value={s.label}>{s.label}</option>
+                <label className="f" htmlFor="showTypeId">Show type</label>
+                <select id="showTypeId" name="showTypeId">
+                  {showTypesFor(loc).map((s) => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
                   ))}
                 </select>
               </div>

@@ -7,13 +7,17 @@ const WORKED = new Set([
   'Blackwood, Adam', 'Byrne, Patrick (Paddy)', 'Fiore, Marco', 'Dicks Jeremy',
   'Pretty Caitlin', 'Lasby, Dan', 'Noftle, Kara', 'Small Andrew', 'Fletcher Logan',
 ]);
-const STAFF: [string, string, number][] = [
+
+/** name, section, hours — exactly as verified against the model workbook. */
+const HOURS: [string, string, number][] = [
   ['Dickson Joleen', 'BAR', 5.73], ['Gordon Daniel', 'BAR', 5.0],
   ['Sweetapple Deborah', 'SERVICE', 4.88], ['Khrystyna Zavadetska', 'SERVICE', 3.55],
   ['Martynova Olena', 'SERVICE', 7.38], ['Polski Maksym', 'SERVICE', 4.83],
   ['Pynn Jackie', 'SERVICE', 5.35], ['Pasechniuk Yana', 'FIFTY_FIFTY', 3.97],
   ['Kachensseva Mariia (Marsh)', 'KITCHEN', 4.3], ['Lundrigan William', 'KITCHEN', 6.15],
   ["O'Reilly Colleen", 'KITCHEN', 8.0], ['Wall James (Jordon)', 'KITCHEN', 4.42],
+  ['Hillier Bridget', 'OFFICE', 1.5], ['Khrystyna Zavadetska', 'OFFICE', 1.5],
+  ['Pasechniuk Maryna', 'OFFICE', 1.5], ['Pasechniuk Yana', 'OFFICE', 1.5],
 ];
 
 const existing = db.prepare(
@@ -25,7 +29,7 @@ if (existing) {
 }
 
 const id = createEvent({
-  locationId: 'spirit', showType: 'Public Show', eventDate: '2026-08-28',
+  locationId: 'spirit', showTypeId: 'public', eventDate: '2026-08-28',
   showName: 'Forever Country', guestAttendance: 86,
 });
 
@@ -38,10 +42,17 @@ for (const c of loaded.cast) {
     db.prepare('UPDATE cast_row SET worked=1 WHERE id=?').run(c.id);
   }
 }
-const ins = db.prepare(
-  'INSERT INTO staff_row (id,event_id,name,section,hours,included,sort) VALUES (?,?,?,?,?,1,?)');
-STAFF.forEach(([name, section, hours], i) => {
-  ins.run(`${id}-s${i}`, id, name, section, hours, i);
-});
+
+// The roster is already seeded at 0.00 by createEvent, so set hours in place
+// rather than inserting duplicate rows.
+const upd = db.prepare('UPDATE staff_row SET hours=? WHERE id=?');
+for (const [name, section, hours] of HOURS) {
+  const row = loaded.staff.find((s) => s.name === name && s.section === section);
+  if (!row) {
+    console.warn(`  ! no roster row for ${name} (${section}) — skipped`);
+    continue;
+  }
+  upd.run(hours, row.id);
+}
 
 console.log('Seeded Forever Country:', id);

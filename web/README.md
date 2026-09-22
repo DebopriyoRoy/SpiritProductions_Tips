@@ -38,12 +38,18 @@ down so it does not render across the capture.
 
 ## How it calculates
 
-Total tips split by percentage between two groups that are paid on different units:
+Three show types, three different formulas — see `src/lib/config.ts`:
 
-| | Pool | Divided by | Unit |
+| Show type | Cast share | Staff denominator | Sections |
 |---|---|---|---|
-| Cast & Musicians | 50% | sum of ratios for those who **worked** | per head |
-| Staff | 50% | total **tipping hours** | per hour |
+| Public Show | 50% | Bar & Service + 50/50 + Kitchen + Office | all five |
+| Private at Gower | none (100% staff) | Bar & Service + 50/50 + Kitchen + Office | all five |
+| Private at ACC | none (100% staff) | Bar & Service + Kitchen | Bar, Service, Kitchen |
+
+Cast are paid **per head** (weighted by ratio, only those who worked); staff are
+paid **per hour** at one rate across every section. Private shows have no cast
+block and carry a "service requested as per contract" field instead. The ACC bar
+has its own roster.
 
 Everything is **integer cents**, distributed by the largest-remainder method, so
 each pool is paid out exactly. `cast + staff + unallocated = total` is asserted
