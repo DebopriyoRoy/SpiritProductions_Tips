@@ -7,6 +7,9 @@ optional in production.
 Two accounts are needed, both free to start: **Neon** (Postgres) and **Vercel**
 (hosting). Nothing below requires sharing a password or token with anyone.
 
+**This can all be done from a phone browser — no terminal, no installs.** The
+steps marked *(optional, terminal)* have in-app equivalents.
+
 ## 1. Create the database
 
 1. Sign up at [neon.tech](https://neon.tech) and create a project — pick the
@@ -34,6 +37,7 @@ Two accounts are needed, both free to start: **Neon** (Postgres) and **Vercel**
    | Name | Value |
    |---|---|
    | `DATABASE_URL` | the pooled Neon string from step 1 |
+   | `SETUP_SECRET` | a long random string you invent — used once, in step 4 |
 
 5. Deploy. The schema creates itself on first request — `ensureSchema()` runs
    once per process behind a Postgres advisory lock, so concurrent instances
@@ -66,17 +70,24 @@ id would pull the wrong venue's timecards into a payout sheet.
 **Nobody can sign in until you do this**, including anyone who finds the URL.
 That is deliberate: a fresh deployment is locked, not open.
 
+Open the site. It sends you to the sign-in page, which links to **Set up**.
+Enter the `SETUP_SECRET` you chose in step 2, then your name, email and a
+password of 12 characters or more.
+
+That page refuses to work once one account exists — afterwards it returns
+"not found" to everyone — and it does nothing at all unless `SETUP_SECRET` is
+set. Once you are in, you can delete `SETUP_SECRET` from Vercel.
+
+*(Optional, terminal)* The same thing from a machine with Node:
+
 ```bash
 DATABASE_URL='<the pooled Neon string>' \
 ADMIN_EMAIL='you@example.com' \
 ADMIN_PASSWORD='a long passphrase you have not used elsewhere' \
-ADMIN_NAME='Your Name' \
 npm run create-admin
 ```
 
-Run it from your own machine against the deployed database. The password is
-never stored as text — only a salted scrypt hash — and it is not saved in
-Vercel's environment.
+Either way the password is stored only as a salted scrypt hash.
 
 Then sign in and use **People** in the top bar to add everyone else. Each person
 gets a role and a set of venues:
@@ -88,15 +99,14 @@ gets a role and a set of venues:
 A manager scoped to Spirit cannot open, export or edit an ACC show: the venue
 simply is not there, and a direct link returns "not found".
 
-## 5. Seed the sample show (optional)
+## 5. Load the sample show (optional)
 
-To load the verified Forever Country night into the deployed database:
+Sign in as an admin and open **Spirit Theater**. With no shows yet, the list
+offers **Load the sample show** — the verified Forever Country night, 28 Aug
+2026. One tap, no terminal.
 
-```bash
-DATABASE_URL='<the pooled Neon string>' npm run seed
-```
-
-Run it once. It exits without changes if that show already exists.
+*(Optional, terminal)* `DATABASE_URL='…' npm run seed` does the same. Either
+way it is idempotent: run it twice and you still have one show.
 
 ## Running locally
 
@@ -119,6 +129,8 @@ takes a second or two to wake.
 
 ## Security notes
 
+- `SETUP_SECRET` only ever creates the *first* account, and only while none
+  exists. Remove it from the environment once you are set up.
 - Sessions are random 32-byte tokens in an httpOnly, SameSite=Lax cookie,
   marked Secure in production. The database stores only a SHA-256 of the token,
   so a database leak does not hand over live sessions.

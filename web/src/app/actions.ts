@@ -5,7 +5,8 @@ import { q, one, tx, uid, ensureSchema } from '@/lib/db';
 import { createEvent, syncFromSquare } from '@/lib/service';
 import { toCents } from '@/lib/money';
 import { getLocation } from '@/lib/config';
-import { requireLocation, requireUser, destroySession } from '@/lib/auth';
+import { requireLocation, requireUser, destroySession, isAdmin } from '@/lib/auth';
+import { seedForeverCountry } from '@/lib/demo';
 import { redirect } from 'next/navigation';
 
 const num = (v: FormDataEntryValue | null, d = 0) => {
@@ -16,6 +17,15 @@ const num = (v: FormDataEntryValue | null, d = 0) => {
 export async function signOutAction() {
   await destroySession();
   redirect('/login');
+}
+
+/** Loads the verified sample night. Admins only; idempotent. */
+export async function loadSampleAction() {
+  const user = await requireUser();
+  if (!isAdmin(user)) throw new Error('Admins only');
+  const { id } = await seedForeverCountry();
+  revalidatePath('/?location=spirit');
+  redirect(`/events/${id}?location=spirit`);
 }
 
 export async function createEventAction(fd: FormData) {

@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { LOCATIONS, getLocation, showTypesFor } from '@/lib/config';
-import { requireUser, canSeeLocation, visibleLocations, NotAuthenticated } from '@/lib/auth';
+import { requireUser, canSeeLocation, visibleLocations, isAdmin, NotAuthenticated } from '@/lib/auth';
 import { eventsForLocation } from '@/lib/db';
 import { computeEvent } from '@/lib/service';
-import { createEventAction } from './actions';
+import { createEventAction, loadSampleAction } from './actions';
 import { LocationBar } from './LocationBar';
 import { fmt } from '@/lib/money';
 
@@ -105,7 +105,20 @@ export default async function Home({
         <div className="panel">
           <h2>Shows</h2>
           {events.length === 0 ? (
-            <p className="muted">No shows yet for {loc.name}.</p>
+            <>
+              <p className="muted">No shows yet for {loc.name}.</p>
+              {isAdmin(user) && loc.id === 'spirit' && (
+                <form action={loadSampleAction} style={{ marginTop: 10 }}>
+                  <button className="btn ghost" type="submit">
+                    Load the sample show
+                  </button>
+                  <span className="muted" style={{ marginLeft: 10, fontSize: 13 }}>
+                    Forever Country, 28 Aug 2026 — the night checked against the
+                    workbook.
+                  </span>
+                </form>
+              )}
+            </>
           ) : (
             <div className="scroll">
               <table>

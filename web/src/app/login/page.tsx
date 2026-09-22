@@ -26,9 +26,10 @@ export default async function LoginPage({
 
         {noUsers ? (
           <div className="note">
-            <strong>No accounts exist yet.</strong> Create the first administrator
-            by running <code>npm run create-admin</code> against this database.
-            Until then nobody can sign in — including anyone who finds this URL.
+            <strong>No accounts exist yet</strong>, so nobody can sign in —
+            including anyone who finds this URL. Create the first administrator
+            on the <a href="/setup">setup page</a>, or by running{' '}
+            <code>npm run create-admin</code>.
           </div>
         ) : null}
 
