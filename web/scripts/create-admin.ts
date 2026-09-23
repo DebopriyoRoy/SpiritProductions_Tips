@@ -7,6 +7,7 @@
  * nobody can sign in, which is the safe default for a fresh deployment.
  */
 import './env';
+import { reportAndExit } from './report';
 import { createUser, countUsers, MIN_PASSWORD } from '../src/lib/auth';
 import { pool, one } from '../src/lib/db';
 import { UserRow } from '../src/lib/db';
@@ -44,5 +45,5 @@ async function main() {
 }
 
 main()
-  .catch((err) => { console.error(err.message ?? err); process.exitCode = 1; })
+  .catch(reportAndExit)
   .finally(() => pool.end());

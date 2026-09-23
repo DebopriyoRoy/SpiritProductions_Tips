@@ -1,5 +1,6 @@
 /** Creates the schema. Safe to run repeatedly. */
 import './env';
+import { reportAndExit } from './report';
 import { ensureSchema, pool, q } from '../src/lib/db';
 
 async function main() {
@@ -11,5 +12,5 @@ async function main() {
 }
 
 main()
-  .catch((err) => { console.error(err.message); process.exitCode = 1; })
+  .catch(reportAndExit)
   .finally(() => pool.end());

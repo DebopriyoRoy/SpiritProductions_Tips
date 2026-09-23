@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { LOCATIONS, getLocation, showTypesFor } from '@/lib/config';
+import { DatabaseUnavailable } from '@/lib/db';
+import { DbSetupNeeded } from '@/app/DbSetupNeeded';
 import { requireUser, canSeeLocation, visibleLocations, isAdmin, NotAuthenticated } from '@/lib/auth';
 import { eventsForLocation } from '@/lib/db';
 import { computeEvent } from '@/lib/service';
@@ -18,6 +20,7 @@ export default async function Home({
   try {
     user = await requireUser();
   } catch (err) {
+    if (err instanceof DatabaseUnavailable) return <DbSetupNeeded error={err} />;
     if (err instanceof NotAuthenticated) redirect('/login');
     throw err;
   }

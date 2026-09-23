@@ -1,5 +1,7 @@
 import { redirect } from 'next/navigation';
 import { signIn, currentUser, countUsers } from '@/lib/auth';
+import { DatabaseUnavailable } from '@/lib/db';
+import { DbSetupNeeded } from '@/app/DbSetupNeeded';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,9 +9,14 @@ export default async function LoginPage({
   searchParams,
 }: { searchParams: Promise<{ error?: string; next?: string }> }) {
   const sp = await searchParams;
-  if (await currentUser()) redirect('/');
-
-  const noUsers = (await countUsers()) === 0;
+  let noUsers: boolean;
+  try {
+    if (await currentUser()) redirect('/');
+    noUsers = (await countUsers()) === 0;
+  } catch (err) {
+    if (err instanceof DatabaseUnavailable) return <DbSetupNeeded error={err} />;
+    throw err;
+  }
 
   async function submit(fd: FormData) {
     'use server';

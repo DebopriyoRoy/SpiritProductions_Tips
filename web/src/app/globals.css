@@ -105,3 +105,12 @@ label.f { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
   background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
 @media (max-width:760px){ .who-bar{width:100%;margin-left:0} }
+
+/* ---- database setup guidance ---- */
+.dbdetail{background:var(--bg);border:1px solid var(--line);border-radius:6px;
+  padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12.5px;line-height:1.6;white-space:pre-wrap;overflow-x:auto;margin:10px 0}
+.fixlist{padding-left:20px;font-size:14px;line-height:1.7}
+.fixlist li{margin-bottom:10px}
+.authcard h3{font-size:13px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);margin:18px 0 6px}

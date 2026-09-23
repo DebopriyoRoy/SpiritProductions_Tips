@@ -15,27 +15,120 @@ import { Pool, type QueryResultRow } from 'pg';
  */
 let _pool: Pool | null = null;
 
+/** Thrown when the database is not configured or cannot be reached. */
+export class DatabaseUnavailable extends Error {
+  constructor(message: string, readonly detail?: string) {
+    super(message);
+    this.name = 'DatabaseUnavailable';
+  }
+}
+
+const PLACEHOLDER_HOSTS = new Set([
+  'host', 'hostname', 'your-host', 'your_host', 'dbhost', 'example.com',
+]);
+
+/** Catches a copied .env.example before it turns into a confusing DNS error. */
+function rejectPlaceholder(url: URL, raw: string): void {
+  const looksUnedited =
+    PLACEHOLDER_HOSTS.has(url.hostname.toLowerCase()) ||
+    /[<>]/.test(raw) ||
+    (url.username === 'user' && url.password === 'password');
+
+  if (looksUnedited) {
+    throw new DatabaseUnavailable(
+      'DATABASE_URL is still the example value, so there is no database to ' +
+      'connect to.',
+      `Edit web/.env.local and set DATABASE_URL to a real Postgres database.\n` +
+      `  Local:  postgresql://postgres@127.0.0.1:5432/spirit_tips\n` +
+      `  Neon:   copy the "Pooled connection" string from your Neon project\n` +
+      `Current value points at host "${url.hostname}", which does not exist.`,
+    );
+  }
+}
+
 export function getPool(): Pool {
   if (_pool) return _pool;
 
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) {
-    throw new Error(
-      'DATABASE_URL is not set. Copy .env.example to .env.local and point it ' +
-      'at your Postgres database.',
+    throw new DatabaseUnavailable(
+      'DATABASE_URL is not set.',
+      'Copy web/.env.example to web/.env.local and set DATABASE_URL to your ' +
+      'Postgres database.',
     );
   }
-  const isLocal = /@(localhost|127\.0\.0\.1)[:/]/.test(connectionString);
+
+  let url: URL;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    throw new DatabaseUnavailable(
+      'DATABASE_URL is not a valid connection string.',
+      'It should look like postgresql://user:password@host:5432/database',
+    );
+  }
+  if (!/^postgres(ql)?:$/.test(url.protocol)) {
+    throw new DatabaseUnavailable(
+      `DATABASE_URL must start with postgresql://, not "${url.protocol}//".`,
+    );
+  }
+  rejectPlaceholder(url, connectionString);
+
+  const isLocal = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+
+  // We configure TLS here, so drop sslmode from the string to avoid pg's
+  // "sslmode=require does not verify" warning fighting our own setting.
+  url.searchParams.delete('sslmode');
 
   _pool = new Pool({
-    connectionString,
+    connectionString: url.toString(),
     max: Number(process.env.PGPOOL_MAX ?? (isLocal ? 5 : 2)),
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
-    // Managed Postgres requires TLS; a local dev server does not offer it.
-    ssl: isLocal ? undefined : { rejectUnauthorized: false },
+    // Managed Postgres requires TLS and presents a publicly trusted
+    // certificate, so verify it. Set PGSSL_NO_VERIFY=1 only for a server with
+    // a self-signed certificate. A local server offers no TLS at all.
+    ssl: isLocal
+      ? undefined
+      : { rejectUnauthorized: process.env.PGSSL_NO_VERIFY !== '1' },
   });
   return _pool;
+}
+
+/** Turns a driver error into something a person can act on. */
+export function asFriendlyDbError(err: unknown): Error {
+  if (err instanceof DatabaseUnavailable) return err;
+  const e = err as NodeJS.ErrnoException & { code?: string; address?: string };
+  const host = process.env.DATABASE_URL
+    ? (() => { try { return new URL(process.env.DATABASE_URL!).host; }
+               catch { return 'the configured host'; } })()
+    : 'the configured host';
+
+  switch (e?.code) {
+    case 'ENOTFOUND':
+      return new DatabaseUnavailable(
+        `Cannot find the database host "${host}".`,
+        'Check DATABASE_URL in web/.env.local. If it still contains the ' +
+        'example value, replace it with a real connection string.');
+    case 'ECONNREFUSED':
+      return new DatabaseUnavailable(
+        `Nothing is listening at ${host}.`,
+        'Start your Postgres server, or point DATABASE_URL at a running one.');
+    case 'ETIMEDOUT':
+      return new DatabaseUnavailable(
+        `Timed out connecting to ${host}.`,
+        'Check the host and port, and that the database allows connections ' +
+        'from this machine.');
+    case '28P01':
+      return new DatabaseUnavailable(
+        'Postgres rejected the username or password in DATABASE_URL.');
+    case '3D000':
+      return new DatabaseUnavailable(
+        'That database does not exist on the server.',
+        'Create it (createdb spirit_tips) or correct the name in DATABASE_URL.');
+    default:
+      return err instanceof Error ? err : new Error(String(err));
+  }
 }
 
 /** Closes the pool. For scripts; the server keeps it for the process lifetime. */
@@ -49,8 +142,12 @@ export const pool = {
 export async function q<T extends QueryResultRow>(
   text: string, params: unknown[] = [],
 ): Promise<T[]> {
-  const res = await getPool().query<T>(text, params);
-  return res.rows;
+  try {
+    const res = await getPool().query<T>(text, params);
+    return res.rows;
+  } catch (err) {
+    throw asFriendlyDbError(err);
+  }
 }
 
 export async function one<T extends QueryResultRow>(
@@ -63,7 +160,12 @@ export async function one<T extends QueryResultRow>(
 export async function tx<T>(fn: (c: {
   q: <R extends QueryResultRow>(text: string, params?: unknown[]) => Promise<R[]>;
 }) => Promise<T>): Promise<T> {
-  const client = await getPool().connect();
+  let client;
+  try {
+    client = await getPool().connect();
+  } catch (err) {
+    throw asFriendlyDbError(err);
+  }
   try {
     await client.query('BEGIN');
     const out = await fn({
@@ -177,7 +279,12 @@ let schemaReady: Promise<void> | null = null;
 export function ensureSchema(): Promise<void> {
   if (!schemaReady) {
     schemaReady = (async () => {
-      const client = await getPool().connect();
+      let client;
+      try {
+        client = await getPool().connect();
+      } catch (err) {
+        throw asFriendlyDbError(err);
+      }
       try {
         await client.query('SELECT pg_advisory_lock($1)', [SCHEMA_LOCK_ID]);
         await client.query(SCHEMA);

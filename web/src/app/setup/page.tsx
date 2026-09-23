@@ -3,6 +3,8 @@ import { timingSafeEqual } from 'node:crypto';
 import {
   countUsers, createUser, createSession, currentUser, MIN_PASSWORD,
 } from '@/lib/auth';
+import { DatabaseUnavailable } from '@/lib/db';
+import { DbSetupNeeded } from '@/app/DbSetupNeeded';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,10 +24,14 @@ export default async function SetupPage({
   searchParams,
 }: { searchParams: Promise<{ error?: string }> }) {
   const sp = await searchParams;
-  if (await currentUser()) redirect('/');
-
-  // Once an account exists this page does not exist either.
-  if ((await countUsers()) > 0) notFound();
+  try {
+    if (await currentUser()) redirect('/');
+    // Once an account exists this page does not exist either.
+    if ((await countUsers()) > 0) notFound();
+  } catch (err) {
+    if (err instanceof DatabaseUnavailable) return <DbSetupNeeded error={err} />;
+    throw err;
+  }
 
   const secret = process.env.SETUP_SECRET ?? '';
 
