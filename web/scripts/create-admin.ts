@@ -6,6 +6,7 @@
  * Run it against the same DATABASE_URL the app uses. Until an account exists
  * nobody can sign in, which is the safe default for a fresh deployment.
  */
+import './env';
 import { createUser, countUsers, MIN_PASSWORD } from '../src/lib/auth';
 import { pool, one } from '../src/lib/db';
 import { UserRow } from '../src/lib/db';

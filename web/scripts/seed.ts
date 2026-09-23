@@ -1,4 +1,5 @@
 /** Seeds the verified Forever Country show. Also available in the app itself. */
+import './env';
 import { seedForeverCountry } from '../src/lib/demo';
 import { pool } from '../src/lib/db';
 

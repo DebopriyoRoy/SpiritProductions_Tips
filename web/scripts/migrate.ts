@@ -1,4 +1,5 @@
 /** Creates the schema. Safe to run repeatedly. */
+import './env';
 import { ensureSchema, pool, q } from '../src/lib/db';
 
 async function main() {

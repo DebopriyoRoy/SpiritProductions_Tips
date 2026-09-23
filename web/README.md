@@ -8,8 +8,8 @@ The calculation it implements is documented in [`../docs/TIP_LOGIC.md`](../docs/
 ## Quick start
 
 ```bash
-cp .env.example .env.local   # set DATABASE_URL (Postgres)
 npm install
+cp .env.example .env.local   # then set DATABASE_URL to your Postgres database
 npm run migrate              # creates the schema
 npm run seed                 # loads the verified Forever Country show (28 Aug 2026)
 
@@ -26,7 +26,7 @@ built-in demo provider, and the header shows **Demo data**. Copy `.env.example`
 to `.env.local` and fill it in to hit the real account.
 
 ```bash
-npm test         # 22 tests, including golden tests against the real figures
+npm test         # 36 tests: the tip engine, plus hashing and authorisation
 npm run build
 ```
 

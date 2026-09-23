@@ -9,6 +9,7 @@
  *   SHOTS_DIR       default ./screenshots
  *   CHROMIUM_PATH   explicit browser binary, if Playwright cannot find one
  */
+import './env';
 import { chromium, type Browser, type BrowserContext } from 'playwright';
 import { mkdirSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
