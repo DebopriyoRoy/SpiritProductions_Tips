@@ -16,6 +16,10 @@ export interface ImportResult {
   columns: { name: string; hours: string; date: string | null };
   /** "Excel workbook" or "CSV", so the report can say what was read. */
   format: string;
+  /** Every date the file carries, so a mismatch can be named rather than guessed at. */
+  datesSeen: string[];
+  /** Rows matched only because the date filter was turned off. */
+  dateFilterIgnored: boolean;
   skippedNoName: number;
   skippedOtherDate: number;
   warnings: string[];
@@ -216,6 +220,7 @@ export function toHours(v: unknown): number | null {
  */
 export async function parseTimecard(
   buffer: ArrayBuffer, eventDate: string, filename = '',
+  opts: { ignoreDates?: boolean } = {},
 ): Promise<ImportResult> {
   const kind = sniffFormat(buffer);
 
@@ -289,6 +294,7 @@ export async function parseTimecard(
   }
 
   const rows: ImportedRow[] = [];
+  const datesSeen = new Set<string>();
   let skippedNoName = 0, skippedOtherDate = 0;
 
   for (let r = headerRow + 1; r < grid.length; r++) {
@@ -303,7 +309,11 @@ export async function parseTimecard(
     if (/^totals?\b/i.test(name)) continue;   // export footers
 
     const date = cDate >= 0 ? toISODate(v[cDate]) : null;
-    if (cDate >= 0 && date && date !== eventDate) { skippedOtherDate++; continue; }
+    if (date) datesSeen.add(date);
+    if (!opts.ignoreDates && cDate >= 0 && date && date !== eventDate) {
+      skippedOtherDate++;
+      continue;
+    }
 
     const raw = toHours(v[cHours]);
     if (raw == null) continue;
@@ -328,6 +338,8 @@ export async function parseTimecard(
       date: cDate >= 0 ? headers[cDate] : null,
     },
     format,
+    datesSeen: [...datesSeen].sort(),
+    dateFilterIgnored: !!opts.ignoreDates && cDate >= 0,
     skippedNoName,
     skippedOtherDate,
     warnings,

@@ -69,7 +69,7 @@ export async function saveEventAction(fd: FormData) {
       `UPDATE event SET show_name=$1, guest_attendance=$2, gratuity_cents=$3,
          cash_cents=$4, square_cents=$5, total_override_cents=$6,
          cast_share_percent=$7, office_hours=$8, odd_cent_to=$9,
-         contract_service=$10
+         contract_service=$10, event_date=COALESCE($12, event_date)
        WHERE id=$11`,
       [
         String(fd.get('showName') ?? ''),
@@ -83,6 +83,7 @@ export async function saveEventAction(fd: FormData) {
         String(fd.get('oddCentTo') ?? 'staff'),
         String(fd.get('contractService') ?? ''),
         eventId,
+        String(fd.get('eventDate') ?? '').trim() || null,
       ],
     );
 
@@ -223,7 +224,8 @@ export async function importTimecardAction(fd: FormData) {
   let parsed;
   try {
     parsed = await parseTimecard(
-      await (file as File).arrayBuffer(), eventDate, (file as File).name);
+      await (file as File).arrayBuffer(), eventDate, (file as File).name,
+      { ignoreDates: fd.get('ignoreDates') === 'on' });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Could not read that file.';
     redirect(`/events/${eventId}?location=${locationId}&import=` +
@@ -273,6 +275,10 @@ export async function importTimecardAction(fd: FormData) {
     skippedOtherDate: parsed.skippedOtherDate,
     columns: parsed.columns,
     format: parsed.format,
+    eventDate,
+    datesSeen: parsed.datesSeen.slice(0, 8),
+    datesSeenTotal: parsed.datesSeen.length,
+    dateFilterIgnored: parsed.dateFilterIgnored,
     warnings: parsed.warnings,
     file: (file as File).name,
   };

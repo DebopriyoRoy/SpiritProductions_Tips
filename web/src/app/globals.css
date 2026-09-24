@@ -422,3 +422,10 @@ details.shares .tablewrap { margin-top: 10px; }
   .toolbar { flex-direction: column; align-items: stretch; }
   .uploader { min-width: 0; }
 }
+
+/* Checkbox with its label on one line, inside the upload toolbar. */
+label.inline {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--muted); cursor: pointer;
+}
+label.inline input { margin: 0; }

@@ -170,3 +170,28 @@ describe('name matching', () => {
     expect(nameKey('Pynn Jackie')).not.toBe(nameKey('Pynn Morgan'));
   });
 });
+
+describe('date mismatch', () => {
+  const csv = 'Last Name,First Name,Clockin Date,Regular Hours\n' +
+    'Pynn,Jackie,08/28/2026,6\nGordon,Daniel,08/28/2026,5\n';
+
+  it('reports the dates the file actually carries', async () => {
+    const r = await parseTimecard(buf(csv), '2026-08-26');
+    expect(r.rows).toHaveLength(0);
+    expect(r.skippedOtherDate).toBe(2);
+    expect(r.datesSeen).toEqual(['2026-08-28']);
+  });
+
+  it('takes every row when the date filter is turned off', async () => {
+    const r = await parseTimecard(buf(csv), '2026-08-26', '', { ignoreDates: true });
+    expect(r.rows).toHaveLength(2);
+    expect(r.dateFilterIgnored).toBe(true);
+  });
+
+  it('builds names from split columns on a real-shaped header', async () => {
+    const r = await parseTimecard(buf(csv), '2026-08-28');
+    expect(r.columns.name).toBe('last name + first name');
+    expect(r.columns.date).toBe('clockin date');
+    expect(nameKey(r.rows[0].name)).toBe(nameKey('Jackie Pynn'));
+  });
+});

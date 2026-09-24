@@ -71,10 +71,25 @@ export default async function EventPage({
             Could not read that timecard: {String(report.error)}
           </div>
         ) : (
-          <div className="note ok-note">
+          <div className={`note ${Number(report.rows) === 0 ? 'err' : 'ok-note'}`}
+               role={Number(report.rows) === 0 ? 'alert' : undefined}>
+            {Number(report.rows) === 0 && Number(report.skippedOtherDate) > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <strong>Nothing was imported: the dates do not match.</strong>{' '}
+                This show is dated <code>{String(report.eventDate)}</code>, but every
+                row in that file is dated{' '}
+                {(report.datesSeen as string[]).map((d, i, a) => (
+                  <span key={d}><code>{d}</code>{i < a.length - 1 ? ', ' : ''}</span>
+                ))}
+                {Number(report.datesSeenTotal) > (report.datesSeen as string[]).length
+                  && ' and others'}.
+                {' '}Either correct <em>Show date</em> below and save, or tick{' '}
+                <em>Take every row, whatever date it carries</em> and upload again.
+              </div>
+            )}
             Read <strong>{String(report.file)}</strong> as{' '}
             {String(report.format ?? 'a spreadsheet')}: {String(report.rows)} row(s)
-            for this date.
+            {report.dateFilterIgnored ? ' (date ignored)' : ' for this date'}.
             {' '}{String(report.staffSet)} staff given hours,
             {' '}{String(report.castTicked)} cast ticked.
             {Number(report.capped) > 0 &&
@@ -174,6 +189,10 @@ export default async function EventPage({
                      accept=".xlsx,.csv,.tsv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
             </div>
             <button className="btn" type="submit">Upload timecard</button>
+            <label className="inline">
+              <input type="checkbox" name="ignoreDates" />
+              Take every row, whatever date it carries
+            </label>
             <p className="sub" style={{ margin: 0, flexBasis: '100%' }}>
               Excel (.xlsx) or CSV. Rows dated {event.event_date} are matched to
               this roster by name: staff get their hours, cast are ticked as
@@ -254,6 +273,11 @@ export default async function EventPage({
                 <label className="f" htmlFor="showName">Show name</label>
                 <input id="showName" name="showName" type="text"
                        defaultValue={event.show_name} />
+              </div>
+              <div>
+                <label className="f" htmlFor="eventDate">Show date</label>
+                <input id="eventDate" name="eventDate" type="date"
+                       defaultValue={event.event_date} />
               </div>
               <div>
                 <label className="f" htmlFor="guestAttendance">Guests</label>
