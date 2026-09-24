@@ -108,22 +108,23 @@ export default async function Home({
         <div className="panel">
           <h2>Shows</h2>
           {events.length === 0 ? (
-            <>
-              <p className="muted">No shows yet for {loc.name}.</p>
+            <div className="empty">
+              <p>No shows yet for {loc.name}. Create one above when you have a
+                night to split.</p>
               {isAdmin(user) && loc.id === 'spirit' && (
-                <form action={loadSampleAction} style={{ marginTop: 10 }}>
+                <form action={loadSampleAction}>
                   <button className="btn ghost" type="submit">
                     Load the sample show
                   </button>
-                  <span className="muted" style={{ marginLeft: 10, fontSize: 13 }}>
-                    Forever Country, 28 Aug 2026 — the night checked against the
-                    workbook.
-                  </span>
+                  <p style={{ margin: '10px 0 0', fontSize: 13 }}>
+                    Forever Country, 28 Aug 2026 &mdash; the night checked
+                    against the workbook.
+                  </p>
                 </form>
               )}
-            </>
+            </div>
           ) : (
-            <div className="scroll">
+            <div className="tablewrap">
               <table>
                 <thead>
                   <tr>

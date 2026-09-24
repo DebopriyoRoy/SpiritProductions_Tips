@@ -28,8 +28,11 @@ export default async function LoginPage({
   return (
     <div className="authwrap">
       <div className="authcard">
-        <h1>Spirit Tips</h1>
-        <p className="sub">Sign in to view and edit tip sheets.</p>
+        <p className="mark">Spirit Productions</p>
+        <h1>Tip sheets</h1>
+        <p className="sub">
+          Show-night tips for Spirit Theater and the Arts and Culture Centre.
+        </p>
 
         {noUsers ? (
           <div className="note">

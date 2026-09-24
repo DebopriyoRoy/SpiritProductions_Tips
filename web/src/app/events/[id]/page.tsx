@@ -61,11 +61,6 @@ export default async function EventPage({
           {' · '}<Link href={`/?location=${loc.id}`}>All shows</Link>
         </p>
 
-        <div className="panel" style={{ marginTop: 0 }}>
-          <h3 style={{ margin: '0 0 6px' }}>How this show type pays</h3>
-          <p style={{ margin: 0, fontSize: 14 }}>{show.formula}</p>
-        </div>
-
         {synced && (
           <div className="note">
             Synced from <strong>{synced.p === 'demo' ? 'demo data' : 'Square'}</strong>:
@@ -75,44 +70,44 @@ export default async function EventPage({
         )}
         {r.warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}
 
-        <div className="kpis">
-          <div className="kpi">
+        <div className="figures stick">
+          <div className="fig">
             <div className="k">Total tips</div>
             <div className="v">{money(r.totalCents)}</div>
+            <div className="s">{show.label}</div>
           </div>
           {show.hasCast ? (
-            <div className="kpi">
+            <div className="fig">
               <div className="k">Cast pool ({event.cast_share_percent}%)</div>
               <div className="v">{money(r.castPoolCents)}</div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                {r.castWorkedRatioTotal} share(s) · {r.castRatePerShare.toFixed(4)} each
+              <div className="s">
+                {r.castWorkedRatioTotal} share(s) &middot; {r.castRatePerShare.toFixed(4)} each
               </div>
             </div>
           ) : (
-            <div className="kpi">
+            <div className="fig is-nil">
               <div className="k">Cast pool</div>
-              <div className="v muted">—</div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                no cast share on this show type
-              </div>
+              <div className="v">&mdash;</div>
+              <div className="s">no cast share on this show type</div>
             </div>
           )}
-          <div className="kpi">
+          <div className="fig">
             <div className="k">Staff pool</div>
             <div className="v">{money(r.staffPoolCents)}</div>
-            <div className="muted" style={{ fontSize: 12 }}>
-              {r.staffHoursTotal.toFixed(2)} h · {r.staffRatePerHour.toFixed(6)}/h
+            <div className="s">
+              {r.staffHoursTotal.toFixed(2)} h &middot; {r.staffRatePerHour.toFixed(6)}/h
             </div>
           </div>
-          <div className="kpi">
+          <div className={`fig ${r.reconciliationCents === 0 ? 'is-ok' : 'is-alert'}`}>
             <div className="k">Check</div>
-            <div className="v">
-              {r.reconciliationCents === 0
-                ? <span className="ok">0.00</span>
-                : <span className="bad">{money(r.reconciliationCents)}</span>}
-            </div>
-            <div className="muted" style={{ fontSize: 12 }}>cast + staff − total</div>
+            <div className="v">{money(r.reconciliationCents)}</div>
+            <div className="s">cast + staff &minus; total</div>
           </div>
+        </div>
+
+        <div className="formula">
+          <b>How this show type pays</b>
+          {show.formula}
         </div>
 
         {r.unallocatedCents > 0 && (
@@ -218,7 +213,7 @@ export default async function EventPage({
             <p className="sub">
               Hours are irrelevant here. Tick who worked; the pool divides by ratio.
             </p>
-            <div className="scroll">
+            <div className="tablewrap">
               <table>
                 <thead>
                   <tr>
@@ -267,8 +262,16 @@ export default async function EventPage({
               if (rows.length === 0) return null;
               const t = r.sectionTotals.find((x) => x.section === section)!;
               return (
-                <div key={section} className="scroll">
-                  <h3>{SECTION_LABEL[section]}</h3>
+                <div key={section} className="tablewrap">
+                  <h3>
+                    {SECTION_LABEL[section]}
+                    <span className="muted" style={{
+                      textTransform: 'none', letterSpacing: 0, fontWeight: 400,
+                      marginLeft: 8,
+                    }}>
+                      {rows.filter((x) => x.hours > 0).length} of {rows.length} worked
+                    </span>
+                  </h3>
                   <table>
                     <thead>
                       <tr>
@@ -367,7 +370,7 @@ export default async function EventPage({
           <p className="sub">
             Aggregated across sections — someone who worked two roles appears once.
           </p>
-          <div className="scroll">
+          <div className="tablewrap">
             <table>
               <thead>
                 <tr>
