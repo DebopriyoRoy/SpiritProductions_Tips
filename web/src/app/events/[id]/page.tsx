@@ -72,7 +72,9 @@ export default async function EventPage({
           </div>
         ) : (
           <div className="note ok-note">
-            Read <strong>{String(report.file)}</strong>: {String(report.rows)} row(s).
+            Read <strong>{String(report.file)}</strong> as{' '}
+            {String(report.format ?? 'a spreadsheet')}: {String(report.rows)} row(s)
+            for this date.
             {' '}{String(report.staffSet)} staff given hours,
             {' '}{String(report.castTicked)} cast ticked.
             {Number(report.capped) > 0 &&
@@ -87,6 +89,17 @@ export default async function EventPage({
               </>
             )}
             {(report.warnings as string[] | undefined)?.map((w, i) => <div key={i}>{w}</div>)}
+            {report.columns != null && (
+              <div className="sub" style={{ marginTop: 6 }}>
+                Columns used — name:{' '}
+                <code>{String((report.columns as Record<string, unknown>).name)}</code>,
+                hours:{' '}
+                <code>{String((report.columns as Record<string, unknown>).hours)}</code>
+                {(report.columns as Record<string, unknown>).date
+                  ? <>, date: <code>{String((report.columns as Record<string, unknown>).date)}</code></>
+                  : ', no date column'}.
+              </div>
+            )}
           </div>
         ))}
         {r.warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}
@@ -158,13 +171,14 @@ export default async function EventPage({
                 Upload timecard from Square
               </label>
               <input id="timecard" name="timecard" type="file"
-                     accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                     accept=".xlsx,.csv,.tsv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
             </div>
             <button className="btn" type="submit">Upload timecard</button>
             <p className="sub" style={{ margin: 0, flexBasis: '100%' }}>
-              Rows dated {event.event_date} are matched to this roster by name:
-              staff get their hours, cast are ticked as having worked. Anything
-              over {HOURS_CAP} hours is brought down to {HOURS_CAP}.
+              Excel (.xlsx) or CSV. Rows dated {event.event_date} are matched to
+              this roster by name: staff get their hours, cast are ticked as
+              having worked. Anything over {HOURS_CAP} hours is brought down
+              to {HOURS_CAP}.
             </p>
           </form>
 
@@ -172,9 +186,9 @@ export default async function EventPage({
             <input type="hidden" name="eventId" value={event.id} />
             <input type="hidden" name="locationId" value={loc.id} />
             <ConfirmButton className="btn ghost" message={
-              'Clear every selection on this night?\n\nAll cast ticks are ' +
-              'removed and every hour goes back to zero. Tips collected are kept. ' +
-              'This cannot be undone.'
+              'Clear every selection on this night?\n\nEvery cast tick and every ' +
+              'staff tick is removed, and all hours go back to zero. The roster ' +
+              'and the tips collected are kept. This cannot be undone.'
             }>
               Refresh selections
             </ConfirmButton>
@@ -376,7 +390,7 @@ export default async function EventPage({
                             <td style={{ minWidth: 160 }}>
                               <input name={`staff_note_${s.id}`} type="text"
                                      defaultValue={src.note}
-                                     placeholder={src.included ? '' : 'reason required'}
+                                     placeholder={!src.included && src.hours > 0 ? 'reason required' : ''}
                                      aria-label={`${s.name} note`} />
                             </td>
                             <td className="num">{money(s.amountCents)}</td>

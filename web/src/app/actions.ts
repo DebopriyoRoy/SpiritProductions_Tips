@@ -7,7 +7,7 @@ import { toCents } from '@/lib/money';
 import { getLocation } from '@/lib/config';
 import { requireLocation, requireUser, destroySession, isAdmin } from '@/lib/auth';
 import { seedForeverCountry } from '@/lib/demo';
-import { parseTimecardWorkbook, nameKey, HOURS_CAP } from '@/lib/timecardImport';
+import { parseTimecard, nameKey, HOURS_CAP } from '@/lib/timecardImport';
 import { loadEvent } from '@/lib/service';
 import { isoDate } from '@/lib/db';
 import { redirect } from 'next/navigation';
@@ -192,7 +192,8 @@ export async function clearSelectionsAction(fd: FormData) {
   await tx(async (c) => {
     await c.q('UPDATE cast_row SET worked=false WHERE event_id=$1', [eventId]);
     await c.q(
-      'UPDATE staff_row SET hours=0, included=true, note=\'\' WHERE event_id=$1',
+      `UPDATE staff_row SET hours=0, included=false, note='', source='manual',
+         overridden=false WHERE event_id=$1`,
       [eventId]);
   });
   revalidatePath(`/events/${eventId}`);
@@ -221,7 +222,8 @@ export async function importTimecardAction(fd: FormData) {
 
   let parsed;
   try {
-    parsed = await parseTimecardWorkbook(await (file as File).arrayBuffer(), eventDate);
+    parsed = await parseTimecard(
+      await (file as File).arrayBuffer(), eventDate, (file as File).name);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Could not read that file.';
     redirect(`/events/${eventId}?location=${locationId}&import=` +
@@ -270,6 +272,7 @@ export async function importTimecardAction(fd: FormData) {
     unmatchedTotal: unmatched.length,
     skippedOtherDate: parsed.skippedOtherDate,
     columns: parsed.columns,
+    format: parsed.format,
     warnings: parsed.warnings,
     file: (file as File).name,
   };
