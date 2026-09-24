@@ -5,6 +5,7 @@ import { loadEvent, toEngineInput } from '@/lib/service';
 import { calculate, SECTION_LABEL, Section } from '@/lib/tips';
 import { fmt } from '@/lib/money';
 import { LocationBar } from '@/app/LocationBar';
+import { SaveBar } from '@/app/SaveBar';
 import { requireUser, canSeeLocation, NotAuthenticated } from '@/lib/auth';
 import { saveEventAction, syncAction, addStaffAction, deleteStaffAction } from '@/app/actions';
 
@@ -137,7 +138,7 @@ export default async function EventPage({
           </span>
         </form>
 
-        <form action={saveEventAction}>
+        <form action={saveEventAction} id="event-form">
           <input type="hidden" name="eventId" value={event.id} />
           <input type="hidden" name="locationId" value={loc.id} />
 
@@ -216,46 +217,63 @@ export default async function EventPage({
           </div>
 
           {show.hasCast && <div className="panel">
-            <h2>Cast &amp; Musicians — paid per head</h2>
+            <h2>Cast &amp; Musicians &mdash; paid per head</h2>
             <p className="sub">
-              Hours are irrelevant here. Tick who worked; the pool divides by ratio.
+              Hours are irrelevant here. Tick who worked &mdash; {r.castWorkedRatioTotal}{' '}
+              of {r.cast.length} so far, {money(r.castPoolCents)} between them.
             </p>
-            <div className="tablewrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th><th className="num">Ratio</th>
-                    <th className="num">Worked</th><th className="num">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {r.cast.map((c) => (
-                    <tr key={c.id}>
-                      <td>
-                        {c.name}{' '}
-                        {c.technical && <span className="pill">Technical</span>}
-                      </td>
-                      <td className="num" style={{ width: 90 }}>
-                        <input className="num" name={`cast_ratio_${c.id}`} type="number"
-                               step="0.1" min="0" defaultValue={c.ratio} />
-                      </td>
-                      <td className="num" style={{ width: 80 }}>
-                        <input type="checkbox" name={`cast_worked_${c.id}`}
-                               defaultChecked={c.worked}
-                               aria-label={`${c.name} worked`} />
-                      </td>
-                      <td className="num">{money(c.amountCents)}</td>
-                    </tr>
-                  ))}
-                  <tr className="total">
-                    <td>Cast &amp; Musicians total</td>
-                    <td className="num">{r.castWorkedRatioTotal}</td>
-                    <td></td>
-                    <td className="num">{money(r.castPoolCents)}</td>
-                  </tr>
-                </tbody>
-              </table>
+
+            <div className="castgrid">
+              {r.cast.map((c) => (
+                <label className="castchip" key={c.id}>
+                  <input type="checkbox" name={`cast_worked_${c.id}`}
+                         defaultChecked={c.worked}
+                         aria-label={`${c.name} worked`} />
+                  <span className="nm">{c.name}</span>
+                  {c.technical && <span className="tech">tech</span>}
+                  <span className="amt">
+                    {c.amountCents ? money(c.amountCents) : '\u2013'}
+                  </span>
+                </label>
+              ))}
             </div>
+
+            <details className="shares">
+              <summary>Adjust individual shares</summary>
+              <p className="sub" style={{ marginTop: 10 }}>
+                A share of 1 is a full cut. Halve it to pay someone half, or set
+                0 to leave them out of the division entirely.
+              </p>
+              <div className="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th><th className="num">Share</th>
+                      <th className="num">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.cast.map((c) => (
+                      <tr key={c.id} className={c.worked ? undefined : 'off'}>
+                        <td>{c.name}</td>
+                        <td className="num" style={{ width: 110 }}>
+                          <input className="num hrs" name={`cast_ratio_${c.id}`}
+                                 type="number" step="0.1" min="0"
+                                 defaultValue={c.ratio}
+                                 aria-label={`${c.name} share`} />
+                        </td>
+                        <td className="num">{money(c.amountCents)}</td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td>Cast &amp; Musicians total</td>
+                      <td className="num">{r.castWorkedRatioTotal}</td>
+                      <td className="num">{money(r.castPoolCents)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
           </div>}
 
           <div className="panel">
@@ -334,43 +352,44 @@ export default async function EventPage({
                 </div>
               );
             })}
-            <div className="row-actions" style={{ marginTop: 14 }}>
-              <button className="btn" type="submit">Save</button>
+            <div className="row-actions" style={{ marginTop: 16 }}>
+              <button className="btn" type="submit">Save changes</button>
               <span className="muted" style={{ fontSize: 13 }}>
                 Bar &amp; Service combined: {r.barServiceHours.toFixed(2)} h ·{' '}
                 {money(r.barServiceCents)}
               </span>
             </div>
+
+            <h3>Add someone not on the roster</h3>
+            <div className="grid g4">
+              <div>
+                <label className="f" htmlFor="newName">Name</label>
+                <input id="newName" name="name" type="text" form="add-staff" required />
+              </div>
+              <div>
+                <label className="f" htmlFor="newSection">Section</label>
+                <select id="newSection" name="section" form="add-staff">
+                  {show.sections.map((sec) => (
+                    <option key={sec} value={sec}>{SECTION_LABEL[sec]}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="f" htmlFor="newHours">Hours</label>
+                <input id="newHours" className="num" name="hours" type="number"
+                       step="0.01" min="0" defaultValue="0" form="add-staff" />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button className="btn ghost" type="submit" form="add-staff">Add</button>
+              </div>
+            </div>
           </div>
         </form>
 
-        <div className="panel">
-          <h2>Add someone</h2>
-          <form action={addStaffAction} className="grid g4">
-            <input type="hidden" name="eventId" value={event.id} />
-            <input type="hidden" name="locationId" value={loc.id} />
-            <div>
-              <label className="f" htmlFor="newName">Name</label>
-              <input id="newName" name="name" type="text" required />
-            </div>
-            <div>
-              <label className="f" htmlFor="newSection">Section</label>
-              <select id="newSection" name="section">
-                {show.sections.map((s) => (
-                  <option key={s} value={s}>{SECTION_LABEL[s]}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="f" htmlFor="newHours">Hours</label>
-              <input id="newHours" className="num" name="hours" type="number" step="0.01"
-                     min="0" defaultValue="0" />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <button className="btn ghost" type="submit">Add</button>
-            </div>
-          </form>
-        </div>
+        <form action={addStaffAction} id="add-staff">
+          <input type="hidden" name="eventId" value={event.id} />
+          <input type="hidden" name="locationId" value={loc.id} />
+        </form>
 
         <div className="panel">
           <h2>Payout per person</h2>
@@ -409,6 +428,8 @@ export default async function EventPage({
             </a>
           </div>
         </div>
+
+        <SaveBar formId="event-form" />
       </div>
     </>
   );

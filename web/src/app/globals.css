@@ -371,3 +371,52 @@ code {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- unsaved-changes bar ---------- */
+.savebar {
+  position: fixed; left: 0; right: 0; z-index: 50;
+  bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--panel); border-top: 1px solid var(--accent-line);
+  box-shadow: 0 -6px 20px rgb(0 0 0 / .08);
+}
+.savebar-inner {
+  max-width: 1120px; margin: 0 auto; padding: 10px 20px;
+  display: flex; align-items: center; gap: 14px; justify-content: flex-end;
+  font-size: 13.5px; color: var(--muted); font-weight: 500;
+}
+@media (max-width: 620px) {
+  .savebar-inner { padding: 10px 16px; }
+  .savebar-inner .btn { flex: 1; }
+}
+
+/* ---------- cast chips ---------- */
+.castgrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 7px;
+}
+.castchip {
+  display: flex; align-items: center; gap: 9px;
+  border: 1px solid var(--line); background: var(--raise);
+  border-radius: var(--radius); padding: 8px 11px; cursor: pointer;
+  font-size: 13.5px; user-select: none;
+}
+.castchip:hover { border-color: var(--accent-line); }
+.castchip:has(input:checked) { border-color: var(--accent-line); background: var(--accent-wash); }
+.castchip .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.castchip .amt {
+  font-family: var(--mono); font-size: 12px; color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.castchip:has(input:checked) .amt { color: var(--ink-2); }
+.castchip .tech {
+  font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 999px;
+  padding: 0 5px;
+}
+details.shares { margin-top: 14px; }
+details.shares summary {
+  cursor: pointer; font-size: 12.5px; color: var(--muted); width: fit-content;
+}
+details.shares summary:hover { color: var(--ink); }
+details.shares .tablewrap { margin-top: 10px; }
