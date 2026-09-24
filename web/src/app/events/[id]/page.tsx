@@ -189,7 +189,14 @@ export default async function EventPage({
               </div>
               <div>
                 <label className="f" htmlFor="showName">Show name</label>
-                <input id="showName" name="showName" type="text" defaultValue={event.show_name} />
+                <input id="showName" name="showName" type="text"
+                       defaultValue={event.show_name} />
+              </div>
+              <div>
+                <label className="f" htmlFor="guestAttendance">Guests</label>
+                <input id="guestAttendance" className="num" name="guestAttendance"
+                       type="number" min="0" placeholder="not recorded"
+                       defaultValue={event.guest_attendance ?? ''} />
               </div>
             </div>
             {show.hasContractService && (
@@ -205,7 +212,7 @@ export default async function EventPage({
               <input type="hidden" name="contractService"
                      value={event.contract_service} />
             )}
-            <input type="hidden" name="guestAttendance" value={event.guest_attendance ?? ''} />
+
           </div>
 
           {show.hasCast && <div className="panel">

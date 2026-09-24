@@ -1,9 +1,11 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { LOCATIONS, getLocation, showTypesFor } from '@/lib/config';
+import { getLocation, showTypesFor } from '@/lib/config';
 import { DatabaseUnavailable } from '@/lib/db';
 import { DbSetupNeeded } from '@/app/DbSetupNeeded';
-import { requireUser, canSeeLocation, visibleLocations, isAdmin, NotAuthenticated } from '@/lib/auth';
+import {
+  requireUser, canSeeLocation, visibleLocations, isAdmin, NotAuthenticated,
+} from '@/lib/auth';
 import { eventsForLocation } from '@/lib/db';
 import { computeEvent } from '@/lib/service';
 import { createEventAction, loadSampleAction } from './actions';
@@ -12,9 +14,18 @@ import { fmt } from '@/lib/money';
 
 export const dynamic = 'force-dynamic';
 
+/** "Fri 28 Aug 2026" reads faster down a column than an ISO date. */
+function humanDate(iso: string) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  return new Intl.DateTimeFormat('en-CA', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+    timeZone: 'UTC',
+  }).format(d);
+}
+
 export default async function Home({
   searchParams,
-}: { searchParams: Promise<{ location?: string }> }) {
+}: { searchParams: Promise<{ location?: string; error?: string }> }) {
   const sp = await searchParams;
   let user;
   try {
@@ -49,18 +60,44 @@ export default async function Home({
     try {
       const r = await computeEvent(e.id, loc.id);
       return r
-        ? { e, total: fmt(r.totalCents), check: fmt(r.reconciliationCents) }
-        : { e, total: '—', check: null as string | null };
+        ? {
+            e,
+            totalCents: r.totalCents,
+            total: fmt(r.totalCents),
+            check: fmt(r.reconciliationCents),
+            balanced: r.reconciliationCents === 0,
+            people: r.perPerson.length,
+            unallocated: r.unallocatedCents,
+          }
+        : null;
     } catch {
-      return { e, total: '—', check: 'error' as string | null };
+      return {
+        e, totalCents: 0, total: '—', check: 'error', balanced: false,
+        people: 0, unallocated: 0,
+      };
     }
   }));
+  const shows = rows.filter(Boolean) as NonNullable<(typeof rows)[number]>[];
+  const grandTotal = shows.reduce((a, s) => a + s.totalCents, 0);
 
   async function create(fd: FormData) {
     'use server';
-    const id = await createEventAction(fd);
-    redirect(`/events/${id}?location=${fd.get('locationId')}`);
+    const locId = String(fd.get('locationId'));
+    let id: string;
+    try {
+      id = await createEventAction(fd);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const friendly = /duplicate key|already exists/i.test(msg)
+        ? 'A show with that name already exists on that date. Give it a name, ' +
+          'or pick a different date.'
+        : msg;
+      redirect(`/?location=${locId}&error=${encodeURIComponent(friendly)}`);
+    }
+    redirect(`/events/${id}?location=${locId}`);
   }
+
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <>
@@ -68,19 +105,94 @@ export default async function Home({
       <div className="wrap">
         <h1>{loc.name}</h1>
         <p className="sub">
-          Showing only this location&rsquo;s events. Both venues share one Square
-          account, so the location is applied as a filter on every query.
+          {shows.length === 0
+            ? 'No show nights recorded yet.'
+            : `${shows.length} show night${shows.length === 1 ? '' : 's'} · ` +
+              `${fmt(grandTotal)} in tips distributed`}
+          {' · '}
+          <span className="muted">
+            this venue only — both share one Square account, so location filters
+            every query
+          </span>
         </p>
 
+        {sp.error ? <div className="note err" role="alert">{sp.error}</div> : null}
+
+        {shows.length === 0 ? (
+          <div className="empty">
+            <p>
+              Nothing here yet. Add your first show night below.
+            </p>
+            {isAdmin(user) && loc.id === 'spirit' && (
+              <form action={loadSampleAction}>
+                <button className="btn ghost" type="submit">
+                  Load the sample show
+                </button>
+                <p style={{ margin: '10px 0 0', fontSize: 13 }}>
+                  Forever Country, 28 Aug 2026 &mdash; the night checked against
+                  the workbook.
+                </p>
+              </form>
+            )}
+          </div>
+        ) : (
+          <div className="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Show</th>
+                  <th className="num">People</th>
+                  <th className="num">Total tips</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shows.map((s) => (
+                  <tr key={s.e.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {humanDate(s.e.event_date)}
+                    </td>
+                    <td>
+                      <Link href={`/events/${s.e.id}?location=${loc.id}`}
+                            style={{ fontWeight: 600, textDecoration: 'none' }}>
+                        {s.e.show_name || 'Untitled show'}
+                      </Link>
+                      <div className="roles">{s.e.show_type}</div>
+                    </td>
+                    <td className="num">{s.people || '—'}</td>
+                    <td className="num">{s.total}</td>
+                    <td>
+                      {s.check === 'error' ? (
+                        <span className="alert">needs attention</span>
+                      ) : s.totalCents === 0 ? (
+                        <span className="muted">no tips entered</span>
+                      ) : s.unallocated > 0 ? (
+                        <span className="muted">
+                          {fmt(s.unallocated)} unallocated
+                        </span>
+                      ) : s.balanced ? (
+                        <span className="ok">balanced</span>
+                      ) : (
+                        <span className="alert">off by {s.check}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         <div className="panel">
-          <h2>New show</h2>
+          <h2>Add a show night</h2>
           <form action={create}>
             <input type="hidden" name="locationId" value={loc.id} />
-            <div className="grid g4">
+            <div className="grid g3">
               <div>
                 <label className="f" htmlFor="eventDate">Date</label>
                 <input id="eventDate" type="date" name="eventDate" required
-                       defaultValue={new Date().toISOString().slice(0, 10)} />
+                       defaultValue={today} />
               </div>
               <div>
                 <label className="f" htmlFor="showTypeId">Show type</label>
@@ -92,68 +204,14 @@ export default async function Home({
               </div>
               <div>
                 <label className="f" htmlFor="showName">Show name</label>
-                <input id="showName" type="text" name="showName" placeholder="Forever Country" />
-              </div>
-              <div>
-                <label className="f" htmlFor="guestAttendance">Guests</label>
-                <input id="guestAttendance" className="num" type="number" name="guestAttendance" min="0" />
+                <input id="showName" type="text" name="showName"
+                       placeholder="Forever Country" />
               </div>
             </div>
-            <div style={{ marginTop: 12 }}>
+            <div style={{ marginTop: 14 }}>
               <button className="btn" type="submit">Create show</button>
             </div>
           </form>
-        </div>
-
-        <div className="panel">
-          <h2>Shows</h2>
-          {events.length === 0 ? (
-            <div className="empty">
-              <p>No shows yet for {loc.name}. Create one above when you have a
-                night to split.</p>
-              {isAdmin(user) && loc.id === 'spirit' && (
-                <form action={loadSampleAction}>
-                  <button className="btn ghost" type="submit">
-                    Load the sample show
-                  </button>
-                  <p style={{ margin: '10px 0 0', fontSize: 13 }}>
-                    Forever Country, 28 Aug 2026 &mdash; the night checked
-                    against the workbook.
-                  </p>
-                </form>
-              )}
-            </div>
-          ) : (
-            <div className="tablewrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th><th>Show</th><th>Type</th>
-                    <th className="num">Total tips</th>
-                    <th className="num">Check</th><th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(({ e, total, check }) => (
-                      <tr key={e.id}>
-                        <td>{e.event_date}</td>
-                        <td>{e.show_name || <span className="muted">untitled</span>}</td>
-                        <td className="muted">{e.show_type}</td>
-                        <td className="num">{total}</td>
-                        <td className="num">
-                          {check === '0.00'
-                            ? <span className="ok">0.00</span>
-                            : <span className="bad">{check}</span>}
-                        </td>
-                        <td className="num">
-                          <Link href={`/events/${e.id}?location=${loc.id}`}>Open</Link>
-                        </td>
-                      </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
       </div>
     </>
