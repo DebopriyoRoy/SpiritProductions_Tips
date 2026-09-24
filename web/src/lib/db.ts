@@ -76,9 +76,14 @@ export function getPool(): Pool {
 
   const isLocal = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
 
-  // We configure TLS here, so drop sslmode from the string to avoid pg's
-  // "sslmode=require does not verify" warning fighting our own setting.
+  // Strip libpq-only parameters that node-postgres cannot honour:
+  //  - sslmode: TLS is configured below, and leaving it in makes pg warn that
+  //    its meaning is changing.
+  //  - channel_binding: pg does not implement SCRAM channel binding at all, so
+  //    "require" would be silently ignored — a guarantee the driver cannot keep.
+  // Both appear in the connection string Neon hands out.
   url.searchParams.delete('sslmode');
+  url.searchParams.delete('channel_binding');
 
   _pool = new Pool({
     connectionString: url.toString(),
