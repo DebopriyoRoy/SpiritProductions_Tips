@@ -144,11 +144,16 @@ export async function addStaffAction(fd: FormData) {
   revalidatePath(`/events/${eventId}`);
 }
 
-export async function deleteStaffAction(fd: FormData) {
+/**
+ * The row id is BOUND, not sent as a form field: React uses a submit button's
+ * `name` to encode which action to invoke, so a name/value pair on a button
+ * with formAction is silently overridden and never reaches the action.
+ */
+export async function deleteStaffAction(rowId: string, fd: FormData) {
   const eventId = String(fd.get('eventId'));
   await assertScope(eventId, String(fd.get('locationId')));
-  await q('DELETE FROM staff_row WHERE id=$1 AND event_id=$2',
-    [String(fd.get('rowId')), eventId]);
+  if (!rowId) throw new Error('No staff row given to remove');
+  await q('DELETE FROM staff_row WHERE id=$1 AND event_id=$2', [rowId, eventId]);
   revalidatePath(`/events/${eventId}`);
 }
 

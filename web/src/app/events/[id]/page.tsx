@@ -306,8 +306,8 @@ export default async function EventPage({
                             <td className="num">{money(s.amountCents)}</td>
                             <td className="num">
                               <button className="btn ghost small" type="submit"
-                                      formAction={deleteStaffAction}
-                                      name="rowId" value={s.id}>Remove</button>
+                                      formAction={deleteStaffAction.bind(null, s.id)}
+                                      aria-label={`Remove ${s.name}`}>Remove</button>
                             </td>
                           </tr>
                         );
