@@ -5,30 +5,34 @@
    ============================================================ */
 
 :root {
-  --ground:      #f7f5f1;
-  --panel:       #ffffff;
-  --raise:       #faf8f5;
-  --sunk:        #f1eee8;
+  color-scheme: light;
 
-  --ink:         #1b1815;
-  --ink-2:       #4a443d;
-  --muted:       #7a736a;
-  --faint:       #a9a29a;
+  /* cream paper */
+  --ground:      #faf5e9;
+  --panel:       #fffdf6;
+  --raise:       #f7f1e1;
+  --sunk:        #f1e9d5;
 
-  --line:        #e3ded5;
-  --line-soft:   #efebe4;
+  --ink:         #2b2317;
+  --ink-2:       #574c38;
+  --muted:       #8a7c62;
+  --faint:       #b3a684;
 
-  --accent:      #8a5e18;
-  --accent-ink:  #ffffff;
-  --accent-wash: #f6eeda;
-  --accent-line: #d9c08a;
+  --line:        #e7dcc1;
+  --line-soft:   #f0e9d8;
 
-  --ok:          #1c6b47;
-  --ok-wash:     #e7f2ec;
+  /* gold */
+  --accent:      #a17618;
+  --accent-ink:  #fffdf6;
+  --accent-wash: #f8eed3;
+  --accent-line: #dcc075;
+
+  --ok:          #2c6b3f;
+  --ok-wash:     #e8f1e4;
   --warn:        #8a5a00;
-  --warn-wash:   #fbf2dd;
-  --alert:       #a02222;
-  --alert-wash:  #f8eaea;
+  --warn-wash:   #fbf1d6;
+  --alert:       #a33131;
+  --alert-wash:  #f9e9e4;
 
   --radius:      6px;
   --radius-lg:   10px;
@@ -39,40 +43,11 @@
   --mono:    "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --ground:      #141312;
-    --panel:       #1c1a18;
-    --raise:       #232120;
-    --sunk:        #191716;
-    --ink:         #f1ede6;
-    --ink-2:       #cdc6bc;
-    --muted:       #968e84;
-    --faint:       #6b645c;
-    --line:        #322e2a;
-    --line-soft:   #262320;
-    --accent:      #e0a445;
-    --accent-ink:  #1c1a18;
-    --accent-wash: #2b2317;
-    --accent-line: #5c4a24;
-    --ok:          #63c495;
-    --ok-wash:     #172820;
-    --warn:        #e0b45c;
-    --warn-wash:   #2a2416;
-    --alert:       #eb8b8b;
-    --alert-wash:  #2e1a1a;
-  }
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --ground:#141312; --panel:#1c1a18; --raise:#232120; --sunk:#191716;
-  --ink:#f1ede6; --ink-2:#cdc6bc; --muted:#968e84; --faint:#6b645c;
-  --line:#322e2a; --line-soft:#262320;
-  --accent:#e0a445; --accent-ink:#1c1a18; --accent-wash:#2b2317; --accent-line:#5c4a24;
-  --ok:#63c495; --ok-wash:#172820; --warn:#e0b45c; --warn-wash:#2a2416;
-  --alert:#eb8b8b; --alert-wash:#2e1a1a;
-}
+/*
+ * Deliberately one theme. A dark treatment was tried and read as murky
+ * against this palette; cream and gold is the identity, so the page paints
+ * its own ground rather than following the viewer's preference.
+ */
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -420,3 +395,30 @@ details.shares summary {
 }
 details.shares summary:hover { color: var(--ink); }
 details.shares .tablewrap { margin-top: 10px; }
+
+/* ---------- event toolbar ---------- */
+.toolbar {
+  display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap;
+  justify-content: space-between;
+}
+.uploader {
+  display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; flex: 1;
+  min-width: 300px;
+}
+.uploader input[type="file"] {
+  font: inherit; font-size: 13.5px; color: var(--ink-2);
+  background: var(--raise); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 7px 10px; max-width: 340px;
+}
+.uploader input[type="file"]::file-selector-button {
+  font: inherit; font-size: 13px; font-weight: 500; margin-right: 10px;
+  background: var(--sunk); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 4px; padding: 4px 10px; cursor: pointer;
+}
+.uploader input[type="file"]::file-selector-button:hover {
+  border-color: var(--accent-line); background: var(--accent-wash);
+}
+@media (max-width: 620px) {
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .uploader { min-width: 0; }
+}

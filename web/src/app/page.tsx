@@ -8,7 +8,8 @@ import {
 } from '@/lib/auth';
 import { eventsForLocation } from '@/lib/db';
 import { computeEvent } from '@/lib/service';
-import { createEventAction, loadSampleAction } from './actions';
+import { createEventAction, loadSampleAction, deleteEventAction } from './actions';
+import { ConfirmButton } from '@/app/ConfirmButton';
 import { LocationBar } from './LocationBar';
 import { fmt } from '@/lib/money';
 
@@ -145,6 +146,7 @@ export default async function Home({
                   <th className="num">People</th>
                   <th className="num">Total tips</th>
                   <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -176,6 +178,25 @@ export default async function Home({
                       ) : (
                         <span className="alert">off by {s.check}</span>
                       )}
+                    </td>
+                    <td className="num" style={{ whiteSpace: 'nowrap' }}>
+                      <div className="row-actions" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                        <Link className="btn ghost small"
+                              href={`/events/${s.e.id}?location=${loc.id}`}>
+                          Edit
+                        </Link>
+                        <form action={deleteEventAction} style={{ display: 'inline' }}>
+                          <input type="hidden" name="eventId" value={s.e.id} />
+                          <input type="hidden" name="locationId" value={loc.id} />
+                          <ConfirmButton message={
+                            `Delete "${s.e.show_name || 'Untitled show'}" on ` +
+                            `${humanDate(s.e.event_date)}?\n\nThis removes the ` +
+                            `night and everything recorded against it. It cannot be undone.`
+                          }>
+                            Delete
+                          </ConfirmButton>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 ))}

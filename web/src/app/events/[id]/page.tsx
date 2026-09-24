@@ -7,7 +7,13 @@ import { fmt } from '@/lib/money';
 import { LocationBar } from '@/app/LocationBar';
 import { SaveBar } from '@/app/SaveBar';
 import { requireUser, canSeeLocation, NotAuthenticated } from '@/lib/auth';
-import { saveEventAction, syncAction, addStaffAction, deleteStaffAction } from '@/app/actions';
+import {
+  saveEventAction, addStaffAction, deleteStaffAction,
+  clearSelectionsAction, importTimecardAction,
+} from '@/app/actions';
+import { TipsTotal } from '@/app/TipsTotal';
+import { ConfirmButton } from '@/app/ConfirmButton';
+import { HOURS_CAP } from '@/lib/timecardImport';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +21,7 @@ export default async function EventPage({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ location?: string; synced?: string }>;
+  searchParams: Promise<{ location?: string; import?: string; cleared?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
@@ -40,16 +46,8 @@ export default async function EventPage({
   const money = (c: number) => fmt(c);
   const staffBySection = (s: Section) => r.staff.filter((x) => x.section === s);
 
-  async function sync(fd: FormData) {
-    'use server';
-    const res = await syncAction(fd);
-    redirect(`/events/${fd.get('eventId')}?location=${fd.get('locationId')}` +
-      `&synced=${encodeURIComponent(JSON.stringify({
-        p: res.provider, a: res.added, u: res.updated, s: res.skipped, n: res.nonTipped,
-      }))}`);
-  }
-
-  const synced = sp.synced ? JSON.parse(sp.synced) : null;
+  let report: Record<string, unknown> | null = null;
+  try { report = sp.import ? JSON.parse(sp.import) : null; } catch { report = null; }
 
   return (
     <>
@@ -62,13 +60,35 @@ export default async function EventPage({
           {' · '}<Link href={`/?location=${loc.id}`}>All shows</Link>
         </p>
 
-        {synced && (
-          <div className="note">
-            Synced from <strong>{synced.p === 'demo' ? 'demo data' : 'Square'}</strong>:
-            {' '}{synced.a} added, {synced.u} updated, {synced.s} kept as edited,
-            {' '}{synced.n} non-tipped role(s) skipped.
+        {sp.cleared && (
+          <div className="note ok-note">
+            Selections cleared. Nobody is ticked and every hour is back to zero.
           </div>
         )}
+
+        {report && (report.error ? (
+          <div className="note err" role="alert">
+            Could not read that timecard: {String(report.error)}
+          </div>
+        ) : (
+          <div className="note ok-note">
+            Read <strong>{String(report.file)}</strong>: {String(report.rows)} row(s).
+            {' '}{String(report.staffSet)} staff given hours,
+            {' '}{String(report.castTicked)} cast ticked.
+            {Number(report.capped) > 0 &&
+              ` ${String(report.capped)} trimmed to the ${String(report.cap)}-hour cap.`}
+            {Number(report.skippedOtherDate) > 0 &&
+              ` ${String(report.skippedOtherDate)} row(s) were for other dates and ignored.`}
+            {Number(report.unmatchedTotal) > 0 && (
+              <> Not on this roster, so left alone:{' '}
+                <em>{(report.unmatched as string[]).join(', ')}</em>
+                {Number(report.unmatchedTotal) > (report.unmatched as string[]).length &&
+                  ` and ${Number(report.unmatchedTotal) - (report.unmatched as string[]).length} more`}.
+              </>
+            )}
+            {(report.warnings as string[] | undefined)?.map((w, i) => <div key={i}>{w}</div>)}
+          </div>
+        ))}
         {r.warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}
 
         <div className="figures stick">
@@ -129,14 +149,37 @@ export default async function EventPage({
           </div>
         )}
 
-        <form action={sync} style={{ margin: '16px 0' }}>
-          <input type="hidden" name="eventId" value={event.id} />
-          <input type="hidden" name="locationId" value={loc.id} />
-          <button className="btn" type="submit">Sync with Square</button>
-          <span className="muted" style={{ marginLeft: 10, fontSize: 13 }}>
-            Pulls timecards for {event.event_date} at {loc.name} only.
-          </span>
-        </form>
+        <div className="panel toolbar">
+          <form action={importTimecardAction} className="uploader">
+            <input type="hidden" name="eventId" value={event.id} />
+            <input type="hidden" name="locationId" value={loc.id} />
+            <div>
+              <label className="f" htmlFor="timecard">
+                Upload timecard from Square
+              </label>
+              <input id="timecard" name="timecard" type="file"
+                     accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            </div>
+            <button className="btn" type="submit">Upload timecard</button>
+            <p className="sub" style={{ margin: 0, flexBasis: '100%' }}>
+              Rows dated {event.event_date} are matched to this roster by name:
+              staff get their hours, cast are ticked as having worked. Anything
+              over {HOURS_CAP} hours is brought down to {HOURS_CAP}.
+            </p>
+          </form>
+
+          <form action={clearSelectionsAction}>
+            <input type="hidden" name="eventId" value={event.id} />
+            <input type="hidden" name="locationId" value={loc.id} />
+            <ConfirmButton className="btn ghost" message={
+              'Clear every selection on this night?\n\nAll cast ticks are ' +
+              'removed and every hour goes back to zero. Tips collected are kept. ' +
+              'This cannot be undone.'
+            }>
+              Refresh selections
+            </ConfirmButton>
+          </form>
+        </div>
 
         <form action={saveEventAction} id="event-form">
           <input type="hidden" name="eventId" value={event.id} />
@@ -161,13 +204,18 @@ export default async function EventPage({
                        defaultValue={(event.square_cents / 100).toFixed(2)} />
               </div>
               <div>
-                <label className="f" htmlFor="totalOverride">Total override</label>
+                <label className="f" htmlFor="totalOverride">Total tips</label>
                 <input id="totalOverride" className="num" name="totalOverride" type="number" step="0.01"
-                       placeholder="blank = sum of the three"
+                       placeholder="sum of the three"
                        defaultValue={event.total_override_cents != null
                          ? (event.total_override_cents / 100).toFixed(2) : ''} />
               </div>
             </div>
+
+            <TipsTotal
+              partIds={['gratuity', 'cash', 'square']}
+              totalId="totalOverride"
+            />
 
             <h3>Rules for this show</h3>
             <div className="grid g4">
