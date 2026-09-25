@@ -50,6 +50,14 @@ export const NAME_ALIASES: Record<string, string[]> = {
   // Square renders her given name inconsistently. An alias on someone's own
   // record costs nothing if unused and cannot redirect anybody else.
   'Zavadetska Mariia': ['Marila Zavadetska'],
+  // Square spells the surname Griffin and uses the short given name. Without
+  // this the 50/50 row never matched, so the whole section imported as zero.
+  'Griffan Katie': ['Griffin Kate'],
+  // Penny on the roster, Penney in Square — one e apart, one person.
+  'Penny Linda': ['Penney Linda'],
+  // The roster carries his nickname in brackets, which the match strips;
+  // Square files him under it as his given name, spelled Jordan.
+  'Wall James (Jordon)': ['Wall Jordan'],
 };
 
 const OFFICE = [

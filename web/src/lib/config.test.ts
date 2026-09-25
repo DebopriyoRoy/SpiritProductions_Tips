@@ -82,4 +82,22 @@ describe('name aliases', () => {
   it("matches Square's spelling of Kashentseva straight off the roster", () => {
     expect(nameKey('Mariia Kashentseva')).toBe(nameKey('Kashentseva Mariia (Marsh)'));
   });
+
+  /**
+   * These four spellings all appeared in one 26 Aug 2026 export and matched
+   * nobody, which imported the whole 50/50 section as zero. An alias is only
+   * consulted by key, so assert the key the file actually produces.
+   */
+  it("resolves the spellings Square used on 26 Aug 2026", () => {
+    const resolves = (squareName: string, rosterName: string) => {
+      const aliases = NAME_ALIASES[rosterName] ?? [];
+      const hit = aliases.some((a) => nameKey(a) === nameKey(squareName));
+      expect(hit || nameKey(squareName) === nameKey(rosterName),
+        `Square's "${squareName}" does not reach roster "${rosterName}"`).toBe(true);
+    };
+    resolves('Griffin, Kate', 'Griffan Katie');
+    resolves('Penney, Linda', 'Penny Linda');
+    resolves('Wall, Jordan', 'Wall James (Jordon)');
+    resolves('Zavadetska, Marila', 'Zavadetska Mariia');
+  });
 });
