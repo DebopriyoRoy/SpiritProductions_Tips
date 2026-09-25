@@ -16,7 +16,7 @@ const FOREVER_COUNTRY: [string, string, number][] = [
   ['Polski Maksym', 'Busser', 4.83],
   ['Pynn Jackie', 'Service', 5.35],
   ['Pasechniuk Yana', '50/50', 3.97],
-  ['Kachensseva Mariia (Marsh)', 'Kitchen', 4.3],
+  ['Zavadetska Mariia', 'Kitchen', 4.3],
   ['Lundrigan William', 'Kitchen', 6.15],
   ["O'Reilly Colleen", 'Chef', 8.0],
   ['Wall James (Jordon)', 'Kitchen', 4.42],

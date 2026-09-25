@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { q, one, tx, uid, ensureSchema } from '@/lib/db';
 import { createEvent, syncFromSquare } from '@/lib/service';
 import { toCents } from '@/lib/money';
-import { getLocation } from '@/lib/config';
+import { getLocation, NAME_ALIASES } from '@/lib/config';
 import { requireLocation, requireUser, destroySession, isAdmin } from '@/lib/auth';
 import { seedForeverCountry } from '@/lib/demo';
 import { SECTION_LABEL, type Section } from '@/lib/tips';
@@ -244,6 +244,18 @@ export async function importTimecardAction(fd: FormData) {
     if (list) list.push(r); else staffBy.set(k, [r]);
   }
   const castBy = new Map(loaded.cast.map((r) => [nameKey(r.name), r]));
+
+  // Square spells some people differently from the roster. An alias points
+  // the other spelling at the same rows, and never displaces a real name.
+  for (const [canonical, others] of Object.entries(NAME_ALIASES)) {
+    const rows = staffBy.get(nameKey(canonical));
+    const castRow = castBy.get(nameKey(canonical));
+    for (const other of others) {
+      const k = nameKey(other);
+      if (rows && !staffBy.has(k)) staffBy.set(k, rows);
+      if (castRow && !castBy.has(k)) castBy.set(k, castRow);
+    }
+  }
 
   /** Hours accumulated per roster row: somebody can work two shifts in a night. */
   const hoursById = new Map<string, number>();

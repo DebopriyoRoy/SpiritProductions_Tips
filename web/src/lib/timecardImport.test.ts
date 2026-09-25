@@ -272,11 +272,10 @@ describe('job title to section', () => {
 });
 
 describe('suggesting a near-miss name', () => {
-  const roster = ['Kachensseva Mariia (Marsh)', 'Pynn Jackie', 'Gordon Daniel'];
+  const roster = ['Kachensseva Mariia', 'Pynn Jackie', 'Gordon Daniel'];
 
   it('spots a spelling drift between Square and the roster', () => {
-    expect(suggestName('Kashentseva, Mariia', roster))
-      .toBe('Kachensseva Mariia (Marsh)');
+    expect(suggestName('Kashentseva, Mariia', roster)).toBe('Kachensseva Mariia');
   });
 
   it('stays quiet when nobody is close', () => {

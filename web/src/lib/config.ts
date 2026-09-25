@@ -26,10 +26,22 @@ const SERVERS = [
 const FIFTY_FIFTY = ['Griffan Katie', 'Pasechniuk Yana', 'Stacey Taylor'];
 
 const KITCHEN = [
-  'Barron Charlie', 'Kachensseva Mariia (Marsh)', 'Lundrigan Ash',
-  'Lundrigan William', "O'Reilly Colleen", 'Samson Zachary', 'Stuckless Leslie',
-  'Wall James (Jordon)', 'Zavadetska Mariia',
+  'Barron Charlie', 'Lundrigan Ash', 'Lundrigan William', "O'Reilly Colleen",
+  'Samson Zachary', 'Stuckless Leslie', 'Wall James (Jordon)',
+  'Zavadetska Mariia',
 ];
+
+/**
+ * Other spellings the same person appears under in Square's exports. The
+ * workbook and Square do not always agree — Mariia Zavadetska clocks in as
+ * "Kashentseva" — and a timecard that matches nobody leaves somebody unpaid.
+ *
+ * The key is the roster name, exactly as written above. Only add a spelling
+ * you have confirmed is the same person: an alias pays whoever it names.
+ */
+export const NAME_ALIASES: Record<string, string[]> = {
+  'Zavadetska Mariia': ['Kashentseva Mariia', 'Kachensseva Mariia (Marsh)'],
+};
 
 const OFFICE = [
   'Debopriyo Roy', 'Hillier Bridget', 'Khrystyna Zavadetska',
