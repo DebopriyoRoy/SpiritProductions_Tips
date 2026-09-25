@@ -134,10 +134,15 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
     row.getCell(5).numFmt = MONEY;
   }
   const grand = ws.addRow([
-    'TOTAL', '', '', '',
+    'TOTAL',
+    // Cast carry no hours, so this is the staff hours the pool was split by.
+    // Rounded, or the float sum stores as 60.309999999999995 behind the format.
+    Math.round(r.perPerson.reduce((a, b) => a + b.hours, 0) * 100) / 100,
+    '', '',
     r.perPerson.reduce((a, b) => a + b.amountCents, 0) / 100,
   ]);
   grand.font = { name: 'Arial', size: 10, bold: true };
+  grand.getCell(2).numFmt = HOURS;
   grand.getCell(5).numFmt = MONEY;
 
   if (r.warnings.length) {

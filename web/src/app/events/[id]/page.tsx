@@ -532,7 +532,13 @@ export default async function EventPage({
                   </tr>
                 ))}
                 <tr className="total">
-                  <td>Total paid</td><td></td><td></td>
+                  <td>Total paid</td>
+                  {/* Cast are paid per head and carry no hours, so this sums
+                      to the staff hours the pool was divided by. */}
+                  <td className="num">
+                    {r.perPerson.reduce((a, b) => a + b.hours, 0).toFixed(2)}
+                  </td>
+                  <td></td>
                   <td className="num">
                     {money(r.perPerson.reduce((a, b) => a + b.amountCents, 0))}
                   </td>
