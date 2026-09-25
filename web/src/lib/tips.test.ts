@@ -289,3 +289,81 @@ describe('private shows pay 100% to staff, with no cast', () => {
     }
   });
 });
+
+describe('the office is a fixed block of hours', () => {
+  const rules = { castSharePercent: 50, officeHours: 6, oddCentTo: 'staff' as const };
+  const base = {
+    gratuityCents: 0, cashTipsCents: 0, squareTipsCents: 0,
+    totalOverrideCents: toCents(1072.53), cast: [], rules,
+  };
+  const office = (n: number, hours: number[]) =>
+    hours.slice(0, n).map((h, i) => ({
+      id: `o${i}`, name: `Office ${i}`, section: 'OFFICE' as const,
+      hours: h, included: true,
+    }));
+  const bar = [{
+    id: 'b1', name: 'Bar One', section: 'BAR' as const, hours: 10, included: true,
+  }];
+
+  const officeTotal = (r: ReturnType<typeof calculate>) =>
+    r.sectionTotals.find((t) => t.section === 'OFFICE')!.hours;
+
+  it('totals exactly 6 hours however long people actually clocked', () => {
+    const r = calculate({ ...base, staff: [...bar, ...office(2, [5.78, 5.27])] });
+    expect(officeTotal(r)).toBe(6);
+  });
+
+  it('splits those 6 hours equally between everyone who worked', () => {
+    const r = calculate({ ...base, staff: [...bar, ...office(2, [5.78, 5.27])] });
+    const rows = r.staff.filter((s) => s.section === 'OFFICE');
+    expect(rows.map((s) => s.hours)).toEqual([3, 3]);
+  });
+
+  it('ignores overtime entirely — 20 hours clocked is still a 6-hour block', () => {
+    const r = calculate({ ...base, staff: [...bar, ...office(1, [20])] });
+    expect(officeTotal(r)).toBe(6);
+    expect(r.staff.find((s) => s.section === 'OFFICE')!.hours).toBe(6);
+  });
+
+  it('keeps the block exact when it will not divide evenly', () => {
+    const r = calculate({ ...base, staff: [...bar, ...office(4, [1, 2, 3, 4])] });
+    const rows = r.staff.filter((s) => s.section === 'OFFICE');
+    expect(rows.map((s) => s.hours)).toEqual([1.5, 1.5, 1.5, 1.5]);
+    expect(officeTotal(r)).toBe(6);
+  });
+
+  it('splits 6 between 7 without losing or inventing a minute', () => {
+    const r = calculate({ ...base, staff: [...bar, ...office(7, Array(7).fill(4))] });
+    const rows = r.staff.filter((s) => s.section === 'OFFICE');
+    expect(officeTotal(r)).toBe(6);
+    expect(rows.reduce((a, s) => a + s.hours, 0)).toBeCloseTo(6, 10);
+  });
+
+  it('leaves out an office person who did not work', () => {
+    const r = calculate({ ...base, staff: [...bar, ...office(3, [5, 0, 7])] });
+    const rows = r.staff.filter((s) => s.section === 'OFFICE');
+    expect(rows.map((s) => s.hours)).toEqual([3, 0, 3]);
+  });
+
+  it('leaves out an office person who was unticked', () => {
+    const staff = [...bar, ...office(2, [5, 5])];
+    staff[2].included = false;
+    const r = calculate({ ...base, staff });
+    expect(r.staff.filter((s) => s.section === 'OFFICE').map((s) => s.hours))
+      .toEqual([6, 0]);
+  });
+
+  it('holds the block rather than sharing it out when nobody worked it', () => {
+    const r = calculate({ ...base, staff: [...bar, ...office(2, [0, 0])] });
+    expect(r.unallocatedStaffCents).toBeGreaterThan(0);
+    expect(r.reconciliationCents).toBe(0);
+    expect(r.warnings.join(' ')).toMatch(/office block/i);
+  });
+
+  it('still divides by the 6 hours when the office is empty', () => {
+    const withOffice = calculate({ ...base, staff: [...bar, ...office(2, [0, 0])] });
+    const barRow = withOffice.staff.find((s) => s.section === 'BAR')!;
+    // 10 bar hours + 6 office hours = 16; the bar takes 10/16 of the pool.
+    expect(barRow.amountCents).toBe(Math.round((53627 * 10) / 16));
+  });
+});

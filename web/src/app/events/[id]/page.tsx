@@ -400,6 +400,17 @@ export default async function EventPage({
                       {rows.filter((x) => x.hours > 0).length} of {rows.length} worked
                     </span>
                   </h3>
+                  {section === 'OFFICE' && (
+                    <p className="sub" style={{ margin: '0 0 8px' }}>
+                      A fixed {event.office_hours.toFixed(2)} hours for the whole
+                      section, split equally between whoever worked
+                      {t.hours > 0 && rows.filter((x) => x.hours > 0).length > 0 &&
+                        ` — ${(t.hours / rows.filter((x) => x.hours > 0).length).toFixed(2)} each`}.
+                      Clocked hours are recorded here but do not change the share:
+                      overtime included, the office is always
+                      {' '}{event.office_hours.toFixed(2)} hours.
+                    </p>
+                  )}
                   <table>
                     <thead>
                       <tr>
@@ -419,8 +430,12 @@ export default async function EventPage({
                               {!!src.overridden && <span className="pill">edited</span>}
                             </td>
                             <td className="num" style={{ width: 100 }}>
+                              {/* The row's own hours, not the payout's. For the
+                                  office those differ — the payout is the fixed
+                                  block's equal share — and rendering the payout
+                                  would save it back over what was clocked. */}
                               <input className="num" name={`staff_hours_${s.id}`} type="number"
-                                     step="0.01" min="0" defaultValue={s.hours}
+                                     step="0.01" min="0" defaultValue={src.hours}
                                      aria-label={`${s.name} hours`} />
                             </td>
                             <td className="num" style={{ width: 60 }}>

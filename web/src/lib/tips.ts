@@ -117,6 +117,37 @@ export interface Result {
 /** Hours carry two decimals; scale to integers so weights stay exact. */
 const hoursToWeight = (h: number) => Math.round(h * 100);
 
+/**
+ * The office is paid as a fixed block of hours, set by the rule set and
+ * divided equally between whoever is ticked as having worked it. What the
+ * timecard says those people clocked — overtime included — does not change
+ * it: the block is the office's share of the night, not a record of time.
+ *
+ * Returns hours per row index, or undefined for rows this does not govern,
+ * so the rest of the engine can go on reading each row's own hours.
+ */
+function officeHoursByRow(
+  staff: StaffEntry[], officeHours: number,
+): (number | undefined)[] {
+  const out: (number | undefined)[] = staff.map(() => undefined);
+  const manned = staff
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => s.section === 'OFFICE' && s.included && s.hours > 0);
+
+  for (const { i } of staff.map((s, i) => ({ s, i }))
+    .filter(({ s }) => s.section === 'OFFICE')) {
+    out[i] = 0;
+  }
+  if (!manned.length || officeHours <= 0) return out;
+
+  // Split in hundredths so the block totals exactly the hours set, however
+  // many people share it: 6 hours between 4 is 1.50 each, between 7 is
+  // 0.86 twice over and 0.85 for the rest.
+  const shares = allocateByWeight(hoursToWeight(officeHours), manned.map(() => 1));
+  manned.forEach(({ i }, k) => { out[i] = shares[k] / 100; });
+  return out;
+}
+
 export function calculate(input: EventInput): Result {
   const { rules } = input;
   const warnings: string[] = [];
@@ -159,19 +190,45 @@ export function calculate(input: EventInput): Result {
     warnings.push('No cast marked as worked — the cast pool cannot be distributed.');
   }
 
+  // ---- Office: a fixed block, split equally, never read from a timecard ----
+  // The rule set fixes the office at 6 hours. Whatever the timecard says
+  // people actually clocked, overtime included, those 6 hours are the share
+  // the office gets, divided equally between whoever is ticked as working.
+  const officeHours = officeHoursByRow(input.staff, rules.officeHours);
+
   // ---- Staff: per hour, one rate across all sections ----
-  const staffWeights = input.staff.map((s) =>
-    s.included ? hoursToWeight(s.hours) : 0,
+  const staffWeights = input.staff.map((s, i) =>
+    s.included ? hoursToWeight(officeHours[i] ?? s.hours) : 0,
   );
-  const staffHoursTotal = staffWeights.reduce((a, b) => a + b, 0) / 100;
-  const staffAmounts = allocateByWeight(staffPoolCents, staffWeights);
+
+  // The formula divides by "+ 6 office hours" whether or not anyone in the
+  // office is ticked. With nobody there, that block has no recipient, so it
+  // stays in the denominator and its money is held rather than spread over
+  // everyone else.
+  const officeUnmanned =
+    rules.officeHours > 0 &&
+    !input.staff.some((s) => s.section === 'OFFICE' && s.included && s.hours > 0);
+  const phantomOfficeWeight = officeUnmanned ? hoursToWeight(rules.officeHours) : 0;
+
+  const staffHoursTotal =
+    (staffWeights.reduce((a, b) => a + b, 0) + phantomOfficeWeight) / 100;
+  const staffAmounts = allocateByWeight(
+    staffPoolCents, [...staffWeights, phantomOfficeWeight]);
+  const heldOfficeCents = staffAmounts.pop() ?? 0;
+
   const staff: StaffPayout[] = input.staff.map((s, i) => ({
     id: s.id,
     name: s.name,
     section: s.section,
-    hours: s.hours,
+    hours: officeHours[i] ?? s.hours,
     amountCents: staffAmounts[i],
   }));
+  if (officeUnmanned) {
+    warnings.push(
+      `The office block of ${rules.officeHours.toFixed(2)} hours has nobody ` +
+      `ticked, so its share is held rather than paid to the other sections.`,
+    );
+  }
   if (staffHoursTotal === 0 && staffPoolCents > 0) {
     warnings.push('No staff hours entered — the staff pool cannot be distributed.');
   }
@@ -190,13 +247,6 @@ export function calculate(input: EventInput): Result {
   const barServiceHours = round2(bs.reduce((a, b) => a + b.hours, 0));
   const barServiceCents = bs.reduce((a, b) => a + b.amountCents, 0);
 
-  const officeHours = sectionTotals.find((t) => t.section === 'OFFICE')!.hours;
-  if (Math.abs(officeHours - rules.officeHours) > 0.001) {
-    warnings.push(
-      `Office hours total ${officeHours.toFixed(2)} but the rule set expects ` +
-      `${rules.officeHours.toFixed(2)}.`,
-    );
-  }
 
   // ---- Per-person aggregation across sections ----
   const byName = new Map<string, { name: string; hours: number; amountCents: Cents; parts: string[] }>();
@@ -226,7 +276,8 @@ export function calculate(input: EventInput): Result {
   // A pool with no eligible recipients cannot be distributed. That is a real
   // state (nobody ticked yet), not a bug — hold the money visibly instead.
   const unallocatedCastCents = castWorkedRatioTotal === 0 ? castPoolCents : 0;
-  const unallocatedStaffCents = staffHoursTotal === 0 ? staffPoolCents : 0;
+  const unallocatedStaffCents =
+    staffHoursTotal === 0 ? staffPoolCents : heldOfficeCents;
 
   // With recipients present, the allocator must place every cent. This assertion
   // catches a genuine allocation bug without firing on the empty case above.
