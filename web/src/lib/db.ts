@@ -266,16 +266,133 @@ CREATE TABLE IF NOT EXISTS sync_run (
   detail      TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS password_reset (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  -- sha256 of the emailed code, for the same reason sessions are hashed.
+  code_hash  TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reset_user ON password_reset(user_id);
+
+-- Sign-up email verification. Keyed by address, not user_id: at this point
+-- the person has no account yet, which is the whole point of verifying.
+CREATE TABLE IF NOT EXISTS email_verification (
+  id         TEXT PRIMARY KEY,
+  email      TEXT NOT NULL,
+  code_hash  TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_verify_email ON email_verification(email);
+
 CREATE INDEX IF NOT EXISTS idx_event_loc  ON event(location_id, event_date DESC);
 CREATE INDEX IF NOT EXISTS idx_cast_event ON cast_row(event_id);
 CREATE INDEX IF NOT EXISTS idx_staff_event ON staff_row(event_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_timecard
   ON staff_row(event_id, square_timecard_id) WHERE square_timecard_id IS NOT NULL;
+
+/* ------------------------------------------------------------------ *
+ * Converge existing databases
+ *
+ * CREATE TABLE IF NOT EXISTS does nothing once the table is there, so a
+ * column added to the block above never reaches a database created by an
+ * earlier release: migrate prints "Schema ready", exits 0, and the app then
+ * fails on the first query with 'column ... does not exist'. Every column
+ * that is not part of the original table is therefore re-stated here, where
+ * ADD COLUMN IF NOT EXISTS makes the schema converge instead of drift.
+ *
+ * Adding a column here as well as above is the point, not duplication. A new
+ * column MUST be added in both places, and must carry a default so it can be
+ * added to a table that already holds rows.
+ * ------------------------------------------------------------------ */
+
+ALTER TABLE app_user
+  ADD COLUMN IF NOT EXISTS name            TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS role            TEXT NOT NULL DEFAULT 'manager',
+  ADD COLUMN IF NOT EXISTS locations       TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS active          BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS locked_until    TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_at      TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- A session row that predates this column is treated as already expired,
+-- which costs one sign-in and never grants access it should not.
+ALTER TABLE user_session
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE event
+  ADD COLUMN IF NOT EXISTS show_type_id         TEXT NOT NULL DEFAULT 'public',
+  ADD COLUMN IF NOT EXISTS contract_service     TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS show_name            TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS guest_attendance     INTEGER,
+  ADD COLUMN IF NOT EXISTS gratuity_cents       INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS cash_cents           INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS square_cents         INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS total_override_cents INTEGER,
+  ADD COLUMN IF NOT EXISTS cast_share_percent   REAL NOT NULL DEFAULT 50,
+  ADD COLUMN IF NOT EXISTS office_hours         REAL NOT NULL DEFAULT 6,
+  ADD COLUMN IF NOT EXISTS odd_cent_to          TEXT NOT NULL DEFAULT 'staff',
+  ADD COLUMN IF NOT EXISTS status               TEXT NOT NULL DEFAULT 'draft',
+  ADD COLUMN IF NOT EXISTS created_at           TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE cast_row
+  ADD COLUMN IF NOT EXISTS ratio     REAL NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS worked    BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS technical BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS sort      INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE staff_row
+  ADD COLUMN IF NOT EXISTS hours              REAL NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS included           BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS note               TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS square_timecard_id TEXT,
+  ADD COLUMN IF NOT EXISTS source             TEXT NOT NULL DEFAULT 'manual',
+  ADD COLUMN IF NOT EXISTS overridden         BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS sort               INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE sync_run
+  ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS status     TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS detail     TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE password_reset
+  ADD COLUMN IF NOT EXISTS attempts   INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS used_at    TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE email_verification
+  ADD COLUMN IF NOT EXISTS attempts    INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_at  TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- The one-show-per-name-per-night rule. An older database may have the table
+-- without the constraint, and CREATE TABLE IF NOT EXISTS would not add it.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'event'::regclass AND contype = 'u'
+  ) THEN
+    ALTER TABLE event
+      ADD CONSTRAINT event_location_id_event_date_show_name_key
+      UNIQUE (location_id, event_date, show_name);
+  END IF;
+END $$;
 `;
 
 /**
- * Create the schema if it is missing. Memoised per process and guarded by an
- * advisory lock so concurrent serverless instances cannot race each other.
+ * Create the schema if it is missing. Memoised per process and guarded by a
+ * transaction-scoped advisory lock, so concurrent serverless instances cannot
+ * race each other even through a transaction pooler.
  */
 /** Arbitrary but fixed: every instance must use the same advisory lock id. */
 const SCHEMA_LOCK_ID = 528_1975;
@@ -291,10 +408,25 @@ export function ensureSchema(): Promise<void> {
         throw asFriendlyDbError(err);
       }
       try {
-        await client.query('SELECT pg_advisory_lock($1)', [SCHEMA_LOCK_ID]);
+        // One transaction, for two reasons.
+        //
+        // The deploy guide mandates a transaction pooler (Neon's pooled
+        // string, Supabase port 6543). There a session-level
+        // pg_advisory_lock would be taken, used and released on up to three
+        // different backends: it would guard nothing, and would strand the
+        // lock on a pooled connection. pg_advisory_xact_lock is held for the
+        // transaction and released by COMMIT or ROLLBACK, which cannot leak.
+        //
+        // It also makes the DDL all-or-nothing, so a failure halfway cannot
+        // leave the schema half-converged.
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock($1)', [SCHEMA_LOCK_ID]);
         await client.query(SCHEMA);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
       } finally {
-        await client.query('SELECT pg_advisory_unlock($1)', [SCHEMA_LOCK_ID]);
         client.release();
       }
     })().catch((err) => { schemaReady = null; throw err; });
