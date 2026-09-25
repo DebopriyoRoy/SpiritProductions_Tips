@@ -436,3 +436,50 @@ label.inline input { margin: 0; }
   margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line);
 }
 .btn.big { font-size: 15px; padding: 11px 22px; }
+
+/* ---- password field with a show/hide eye ---- */
+.pwwrap { position: relative; display: block; }
+/* Room for the eye so a long passphrase never runs underneath it. */
+.pwwrap input { padding-right: 42px; }
+.pweye {
+  position: absolute; top: 0; right: 0; height: 100%; width: 38px;
+  display: grid; place-items: center;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--muted); border-radius: 0 var(--radius) var(--radius) 0;
+}
+.pweye:hover { color: var(--accent); }
+.pweye:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.authcard .pwhint { margin: 6px 0 0; font-size: 12.5px; }
+/* The card stacks its children, so the wrapper must not collapse the gap. */
+.authcard .pwwrap { margin-top: 0; }
+.authalt {
+  margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line-soft);
+  text-align: center; font-size: 14px; color: var(--muted);
+}
+.authalt a { font-weight: 600; }
+
+/* ---- recovery links under the sign-in button ---- */
+.authhelp {
+  margin: 14px 0 0; text-align: center; font-size: 13.5px;
+  display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+}
+.authhelp span { color: var(--faint); }
+/* A one-time code is read back digit by digit, so space it out. */
+.otp {
+  font-family: var(--mono); font-size: 20px; letter-spacing: .38em;
+  text-align: center; padding-left: 14px;
+}
+
+/* ---- sign-up OTP row ---- */
+.otprow {
+  display: flex; gap: 8px; align-items: center; margin-top: 8px;
+  flex-wrap: wrap;
+}
+.otprow .btn { margin-top: 0; width: auto; padding: 8px 12px; font-size: 13.5px; }
+.otp-inline {
+  flex: 1 1 130px; min-width: 120px; font-size: 16px; letter-spacing: .28em;
+  padding: 7px 8px;
+}
+.authcard .otpnote { margin: 8px 0 0; font-size: 13px; }
+.authcard .otpnote.err { color: var(--danger, #9b2c2c); }
+.authcard .verified { margin: 8px 0 0; font-size: 13px; color: var(--accent); font-weight: 600; }

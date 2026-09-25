@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { signIn, currentUser, countUsers } from '@/lib/auth';
 import { DatabaseUnavailable } from '@/lib/db';
 import { DbSetupNeeded } from '@/app/DbSetupNeeded';
+import { PasswordField } from '@/app/PasswordField';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,11 +50,20 @@ export default async function LoginPage({
           <label className="f" htmlFor="email">Email</label>
           <input id="email" name="email" type="email" autoComplete="username"
                  required autoFocus />
-          <label className="f" htmlFor="password">Password</label>
-          <input id="password" name="password" type="password"
-                 autoComplete="current-password" required />
+          <PasswordField name="password" label="Password"
+                         autoComplete="current-password" />
           <button className="btn" type="submit">Sign in</button>
         </form>
+
+        <p className="authhelp">
+          <a href="/forgot">Forgot password?</a>
+          <span aria-hidden="true">·</span>
+          <a href="/forgot?mode=id">Forgot user ID?</a>
+        </p>
+
+        <p className="authalt">
+          No account yet? <a href="/register">Register</a>
+        </p>
       </div>
     </div>
   );
