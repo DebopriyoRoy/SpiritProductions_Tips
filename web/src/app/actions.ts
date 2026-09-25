@@ -7,7 +7,9 @@ import { toCents } from '@/lib/money';
 import { getLocation } from '@/lib/config';
 import { requireLocation, requireUser, destroySession, isAdmin } from '@/lib/auth';
 import { seedForeverCountry } from '@/lib/demo';
-import { parseTimecard, nameKey, HOURS_CAP } from '@/lib/timecardImport';
+import { SECTION_LABEL, type Section } from '@/lib/tips';
+import { parseTimecard, nameKey, sectionFromJobTitle, suggestName, HOURS_CAP }
+  from '@/lib/timecardImport';
 import { loadEvent } from '@/lib/service';
 import { isoDate } from '@/lib/db';
 import { redirect } from 'next/navigation';
@@ -232,34 +234,70 @@ export async function importTimecardAction(fd: FormData) {
       encodeURIComponent(JSON.stringify({ error: msg })));
   }
 
-  const staffBy = new Map(loaded.staff.map((r) => [nameKey(r.name), r]));
-  const castBy  = new Map(loaded.cast.map((r) => [nameKey(r.name), r]));
+  // One person can sit on several rosters — Yana Pasechniuk is a Server, on
+  // the 50/50 and in the Office — so a name maps to a list of rows, not one
+  // row. Keying by name alone silently dropped all but the last of them.
+  const staffBy = new Map<string, typeof loaded.staff>();
+  for (const r of loaded.staff) {
+    const k = nameKey(r.name);
+    const list = staffBy.get(k);
+    if (list) list.push(r); else staffBy.set(k, [r]);
+  }
+  const castBy = new Map(loaded.cast.map((r) => [nameKey(r.name), r]));
 
-  let staffSet = 0, castTicked = 0, capped = 0;
+  /** Hours accumulated per roster row: somebody can work two shifts in a night. */
+  const hoursById = new Map<string, number>();
+  const shiftsById = new Map<string, number>();
+  const castHit = new Set<string>();
   const unmatched: string[] = [];
+  const guessed: string[] = [];
+
+  for (const row of parsed.rows) {
+    const key = nameKey(row.name);
+    const candidates = staffBy.get(key);
+
+    if (candidates && candidates.length) {
+      let target = candidates[0];
+      if (candidates.length > 1) {
+        // Several rosters carry this person. The job title on the shift says
+        // which one it was; without a usable title, say so rather than
+        // pretending the first guess was informed.
+        const hint = sectionFromJobTitle(row.jobTitle);
+        const match = hint && candidates.find((c) => c.section === hint);
+        if (match) target = match;
+        else guessed.push(`${row.name} (${SECTION_LABEL[target.section as Section]})`);
+      }
+      hoursById.set(target.id, (hoursById.get(target.id) ?? 0) + row.rawHours);
+      shiftsById.set(target.id, (shiftsById.get(target.id) ?? 0) + 1);
+      continue;
+    }
+
+    const cast = castBy.get(key);
+    if (cast) { castHit.add(cast.id); continue; }
+    unmatched.push(row.name);
+  }
+
+  // Cap the person's total for the night, not each shift: two 5-hour shifts
+  // is a 10-hour night, and the rule trims the night.
+  let capped = 0, multiShift = 0;
+  for (const [id, raw] of hoursById) {
+    if (raw > HOURS_CAP) capped++;
+    if ((shiftsById.get(id) ?? 1) > 1) multiShift++;
+    hoursById.set(id, Math.min(Math.round(raw * 100) / 100, HOURS_CAP));
+  }
+
+  const staffSet = hoursById.size;
+  const castTicked = castHit.size;
 
   await tx(async (c) => {
-    for (const row of parsed.rows) {
-      const key = nameKey(row.name);
-
-      const staff = staffBy.get(key);
-      if (staff) {
-        // Only count a trim that was actually applied to somebody.
-        if (row.capped) capped++;
-        await c.q(
-          `UPDATE staff_row SET hours=$1, included=true, source='square',
-             overridden=false WHERE id=$2`,
-          [row.hours, staff.id]);
-        staffSet++;
-        continue;
-      }
-      const cast = castBy.get(key);
-      if (cast) {
-        await c.q('UPDATE cast_row SET worked=true WHERE id=$1', [cast.id]);
-        castTicked++;
-        continue;
-      }
-      unmatched.push(row.name);
+    for (const [id, hours] of hoursById) {
+      await c.q(
+        `UPDATE staff_row SET hours=$1, included=true, source='square',
+           overridden=false WHERE id=$2`,
+        [hours, id]);
+    }
+    for (const id of castHit) {
+      await c.q('UPDATE cast_row SET worked=true WHERE id=$1', [id]);
     }
     await c.q(
       'INSERT INTO sync_run (id,event_id,location_id,status,detail) VALUES ($1,$2,$3,$4,$5)',
@@ -270,8 +308,16 @@ export async function importTimecardAction(fd: FormData) {
   const report = {
     rows: parsed.rows.length,
     staffSet, castTicked, capped, cap: HOURS_CAP,
-    unmatched: unmatched.slice(0, 12),
+    unmatched: unmatched.slice(0, 12).map((n) => {
+      const near = suggestName(n, [
+        ...loaded.staff.map((r) => r.name), ...loaded.cast.map((r) => r.name),
+      ]);
+      return near ? `${n} — did you mean ${near}?` : n;
+    }),
     unmatchedTotal: unmatched.length,
+    guessed: guessed.slice(0, 8),
+    guessedTotal: guessed.length,
+    multiShift,
     skippedOtherDate: parsed.skippedOtherDate,
     columns: parsed.columns,
     format: parsed.format,

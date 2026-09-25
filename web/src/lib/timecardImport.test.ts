@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
 import {
   parseTimecard, parseDelimited, sniffFormat, toISODate, toHours,
-  nameKey, HOURS_CAP,
+  nameKey, sectionFromJobTitle, suggestName, HOURS_CAP,
 } from './timecardImport';
 
 const buf = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
@@ -193,5 +193,97 @@ describe('date mismatch', () => {
     expect(r.columns.name).toBe('last name + first name');
     expect(r.columns.date).toBe('clockin date');
     expect(nameKey(r.rows[0].name)).toBe(nameKey('Jackie Pynn'));
+  });
+});
+
+
+/**
+ * The column layout of a real Square timecard export, kept verbatim so a
+ * change to the reader has to keep working against the actual file.
+ */
+const SQUARE = [
+  'Employee number,First name,Last name,Job title,Location,Clockin date,' +
+  'Clockin time,Clockout date,Clockout time,Regular hours,Overtime hours,' +
+  'Total paid hours,Hourly wage',
+  ',Bridget,Hillier,Server Manager,Spirit Theatre,8/28/26,8:30:00 AM,8/28/26,4:42:05 PM,5.78,2.42,8.2,CA$22.50',
+  'Colleen,Colleen,O\'Reilly,Chef,Spirit Theatre,8/28/26,11:55:16 AM,8/28/26,8:00:00 PM,8.08,0,8.08,CA$16.25',
+  ',Daniel,Gordon,Bartender,Spirit Theatre,8/28/26,5:47:53 PM,8/28/26,10:47:56 PM,5,0,5,CA$16.25',
+  '"Bartender,Server",Jackie,Pynn,Service,Spirit Theatre,8/28/26,4:13:12 PM,8/28/26,9:34:56 PM,5.35,0,5.35,CA$16.25',
+  ',Khrystyna,Zavadetska,Busser,Spirit Theatre,8/28/26,5:55:11 PM,8/28/26,9:28:10 PM,3.55,0,3.55,CA$16.25',
+  ',Yana,Pasechniuk,50/50,Spirit Theatre,8/28/26,5:31:46 PM,8/28/26,9:29:02 PM,3.97,0,3.97,CA$0.00',
+  'Total,,,,,,,,,79.85,9.3,89.15,',
+].join('\n');
+
+describe('a real Square export', () => {
+  it('reads it, ignoring the odd Employee number column', async () => {
+    const r = await parseTimecard(buf(SQUARE), '2026-08-28', 'square.csv');
+    expect(r.columns.name).toBe('last name + first name');
+    expect(r.columns.hours).toBe('regular hours');
+    expect(r.columns.date).toBe('clockin date');
+    expect(r.rows).toHaveLength(6);
+  });
+
+  it('reads 8/28/26 as 2026-08-28', async () => {
+    const r = await parseTimecard(buf(SQUARE), '2026-08-28');
+    expect(r.datesSeen).toEqual(['2026-08-28']);
+  });
+
+  it('takes Regular hours, not Total paid hours', async () => {
+    const r = await parseTimecard(buf(SQUARE), '2026-08-28');
+    const bridget = r.rows.find((x) => /Hillier/.test(x.name))!;
+    expect(bridget.rawHours).toBe(5.78);   // not 8.2
+  });
+
+  it('keeps a quoted comma in the Employee number column from shifting rows', async () => {
+    const r = await parseTimecard(buf(SQUARE), '2026-08-28');
+    const jackie = r.rows.find((x) => /Pynn/.test(x.name))!;
+    expect(jackie.hours).toBe(5.35);
+    expect(jackie.jobTitle).toBe('Service');
+  });
+
+  it('drops the Total footer row', async () => {
+    const r = await parseTimecard(buf(SQUARE), '2026-08-28');
+    expect(r.rows.some((x) => /^total/i.test(x.name))).toBe(false);
+  });
+});
+
+describe('job title to section', () => {
+  it('puts a 50/50 shift on the 50/50 roster', () => {
+    expect(sectionFromJobTitle('50/50')).toBe('FIFTY_FIFTY');
+  });
+
+  it('reads Server Manager as a server, not a manager', () => {
+    expect(sectionFromJobTitle('Server Manager')).toBe('SERVICE');
+  });
+
+  it('maps the titles this export actually uses', () => {
+    expect(sectionFromJobTitle('Bartender')).toBe('BAR');
+    expect(sectionFromJobTitle('Chef')).toBe('KITCHEN');
+    expect(sectionFromJobTitle('Kitchen')).toBe('KITCHEN');
+    expect(sectionFromJobTitle('Busser')).toBe('SERVICE');
+    expect(sectionFromJobTitle('Service')).toBe('SERVICE');
+  });
+
+  it('admits it does not know, rather than guessing', () => {
+    expect(sectionFromJobTitle('Team Member')).toBeNull();
+    expect(sectionFromJobTitle('')).toBeNull();
+    expect(sectionFromJobTitle(null)).toBeNull();
+  });
+});
+
+describe('suggesting a near-miss name', () => {
+  const roster = ['Kachensseva Mariia (Marsh)', 'Pynn Jackie', 'Gordon Daniel'];
+
+  it('spots a spelling drift between Square and the roster', () => {
+    expect(suggestName('Kashentseva, Mariia', roster))
+      .toBe('Kachensseva Mariia (Marsh)');
+  });
+
+  it('stays quiet when nobody is close', () => {
+    expect(suggestName('Nobody Whatsoever', roster)).toBeNull();
+  });
+
+  it('never suggests one real person for another', () => {
+    expect(suggestName('Pynn Morgan', ['Pynn Jackie'])).toBeNull();
   });
 });

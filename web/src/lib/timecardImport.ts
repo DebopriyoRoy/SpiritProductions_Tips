@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import type { Section } from './tips';
 
 export interface ImportedRow {
   name: string;
@@ -356,4 +357,62 @@ export function nameKey(s: string): string {
     .replace(/['’]/g, '')        // O'Reilly and OReilly are one person
     .replace(/[^a-z\s]/g, ' ')
     .split(/\s+/).filter(Boolean).sort().join(' ');
+}
+
+/**
+ * Square's "Job title" says which hat somebody wore for that shift. Several
+ * people sit on more than one roster — Yana Pasechniuk is a Server, on the
+ * 50/50 and in the Office — so without this hint their hours land on whichever
+ * row happens to be found first.
+ *
+ * Returns null when the title says nothing useful ("Team Member"), leaving the
+ * roster to decide.
+ */
+export function sectionFromJobTitle(title: string | null): Section | null {
+  const t = (title ?? '').toLowerCase();
+  if (!t) return null;
+  if (t.includes('50/50') || t.includes('50 50') || t.includes('fifty')) return 'FIFTY_FIFTY';
+  if (/chef|kitchen|cook|dish|prep/.test(t)) return 'KITCHEN';
+  if (/bartender|barback|\bbar\b/.test(t)) return 'BAR';
+  // "Server Manager" is a server, so this has to come before any manager rule.
+  if (/server|service|busser|\bbus\b|host|waiter|waitress/.test(t)) return 'SERVICE';
+  if (/office|admin|reservation|payroll|book/.test(t)) return 'OFFICE';
+  return null;
+}
+
+/** Edit distance, capped: only used to offer a suggestion, never to match. */
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(
+        prev[j] + 1, cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+/**
+ * Names on the roster and names in Square drift apart — "Kachensseva" against
+ * "Kashentseva" is one person and two spellings. This offers the closest
+ * roster name so the mismatch can be fixed by hand; nothing is ever matched on
+ * its say-so, because a wrong guess here pays the wrong person.
+ */
+export function suggestName(unknown: string, roster: string[]): string | null {
+  const key = nameKey(unknown);
+  let best: string | null = null;
+  let bestScore = Infinity;
+
+  for (const name of roster) {
+    const d = editDistance(key, nameKey(name));
+    if (d < bestScore) { bestScore = d; best = name; }
+  }
+  // Loose enough for a spelling drift, tight enough that two different people
+  // are never suggested for one another.
+  const limit = Math.max(2, Math.floor(key.length * 0.25));
+  return best !== null && bestScore <= limit ? best : null;
 }

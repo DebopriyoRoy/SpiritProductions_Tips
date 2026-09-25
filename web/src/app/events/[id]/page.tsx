@@ -103,6 +103,15 @@ export default async function EventPage({
                   ` and ${Number(report.unmatchedTotal) - (report.unmatched as string[]).length} more`}.
               </>
             )}
+            {Number(report.multiShift) > 0 &&
+              ` ${String(report.multiShift)} worked more than one shift; their hours were added together.`}
+            {Number(report.guessedTotal) > 0 && (
+              <div style={{ marginTop: 6 }}>
+                On more than one roster, and the job title did not say which:{' '}
+                <em>{(report.guessed as string[]).join(', ')}</em>. Check those
+                rows and move the hours if they landed in the wrong section.
+              </div>
+            )}
             {(report.warnings as string[] | undefined)?.map((w, i) => <div key={i}>{w}</div>)}
             {report.columns != null && (
               <div className="sub" style={{ marginTop: 6 }}>
@@ -285,6 +294,14 @@ export default async function EventPage({
                        type="number" min="0" placeholder="not recorded"
                        defaultValue={event.guest_attendance ?? ''} />
               </div>
+            </div>
+            <div className="calcrow">
+              <button className="btn big" type="submit">Calculate tips</button>
+              <p className="sub" style={{ margin: 0 }}>
+                Works out every person&rsquo;s share from the hours and ticks
+                below, and saves the night. Nothing is paid out until you
+                press this.
+              </p>
             </div>
             {show.hasContractService && (
               <>
