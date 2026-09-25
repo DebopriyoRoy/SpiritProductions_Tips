@@ -64,8 +64,22 @@ describe('name aliases', () => {
     }
   });
 
-  it("carries Mariia's Square spelling", () => {
-    expect(NAME_ALIASES['Zavadetska Mariia'].map(nameKey))
-      .toContain(nameKey('Kashentseva, Mariia'));
+  it('keeps the two Mariias apart — they are different people', () => {
+    const kash = 'Kashentseva Mariia (Marsh)';
+    const zav  = 'Zavadetska Mariia';
+    expect(nameKey(kash)).not.toBe(nameKey(zav));
+
+    // Neither one's aliases may reach the other, or a night's hours would be
+    // paid to the wrong Mariia.
+    for (const alias of NAME_ALIASES[kash] ?? []) {
+      expect(nameKey(alias)).not.toBe(nameKey(zav));
+    }
+    for (const alias of NAME_ALIASES[zav] ?? []) {
+      expect(nameKey(alias)).not.toBe(nameKey(kash));
+    }
+  });
+
+  it("matches Square's spelling of Kashentseva straight off the roster", () => {
+    expect(nameKey('Mariia Kashentseva')).toBe(nameKey('Kashentseva Mariia (Marsh)'));
   });
 });
