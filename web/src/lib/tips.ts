@@ -9,6 +9,17 @@ import { Cents, allocateByWeight, splitPool, toCents } from './money';
 
 export type Section = 'BAR' | 'SERVICE' | 'FIFTY_FIFTY' | 'KITCHEN' | 'OFFICE';
 
+/**
+ * The value the "add someone" form sends to mean "put them in the cast".
+ *
+ * Deliberately not a Section: the cast is the other side of the sheet, paid
+ * per head rather than per hour. It lives here, beside Section, because both
+ * the client form and the server action need it — and a constant imported
+ * from a 'use client' module arrives undefined on the server, which silently
+ * turns this comparison into a fallthrough.
+ */
+export const CAST_SECTION = 'CAST';
+
 export const SECTION_LABEL: Record<Section, string> = {
   BAR: 'Bartenders',
   SERVICE: 'Servers',

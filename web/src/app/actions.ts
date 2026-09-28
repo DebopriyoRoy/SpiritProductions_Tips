@@ -4,10 +4,12 @@ import { revalidatePath } from 'next/cache';
 import { q, one, tx, uid, ensureSchema } from '@/lib/db';
 import { createEvent, syncFromSquare } from '@/lib/service';
 import { toCents } from '@/lib/money';
-import { getLocation, NAME_ALIASES } from '@/lib/config';
+import {
+  getLocation, NAME_ALIASES, CAST, getShowTypeForLocation, SECTIONS,
+} from '@/lib/config';
 import { requireLocation, requireUser, destroySession, isAdmin } from '@/lib/auth';
 import { seedForeverCountry } from '@/lib/demo';
-import { SECTION_LABEL, type Section } from '@/lib/tips';
+import { SECTION_LABEL, CAST_SECTION, type Section } from '@/lib/tips';
 import { parseTimecard, nameKey, sectionFromJobTitle, suggestName, HOURS_CAP }
   from '@/lib/timecardImport';
 import { loadEvent } from '@/lib/service';
@@ -173,10 +175,57 @@ export async function addStaffAction(fd: FormData) {
   await assertScope(eventId, locationId);
   const name = String(fd.get('name') ?? '').trim();
   if (!name) return;
+  const section = String(fd.get('section'));
+
+  // "Cast" is not a staff section — it is the other side of the sheet, paid
+  // per head from the cast pool rather than per hour.
+  if (section === CAST_SECTION) {
+    const show = getShowTypeForLocation(
+      (await one<{ show_type_id: string }>(
+        'SELECT show_type_id FROM event WHERE id=$1', [eventId]))?.show_type_id
+        ?? 'public',
+      locationId);
+    // A venue with no cast has nowhere to put them; refusing here stops a
+    // form that was tampered with from creating rows the sheet never shows.
+    if (!show.hasCast) throw new Error('This show has no cast to add to');
+
+    await q(
+      `INSERT INTO cast_row (id,event_id,name,ratio,worked,technical,sort)
+       VALUES ($1,$2,$3,$4,true,false,500)
+       ON CONFLICT (event_id, name) DO NOTHING`,
+      [uid(), eventId, name, num(fd.get('ratio'), 1)]);
+    revalidatePath(`/events/${eventId}`);
+    return;
+  }
+
+  // Anything that is not a section this show runs would create a row no
+  // table displays — which is exactly how a cast member once ended up filed
+  // as staff under a section called "CAST".
+  if (!SECTIONS.includes(section as Section)) {
+    throw new Error(`Unknown section: ${section}`);
+  }
   await q(
     `INSERT INTO staff_row (id,event_id,name,section,hours,included,sort)
      VALUES ($1,$2,$3,$4,$5,true,500)`,
-    [uid(), eventId, name, String(fd.get('section')), Number(fd.get('hours') ?? 0)]);
+    [uid(), eventId, name, section, Number(fd.get('hours') ?? 0)]);
+  revalidatePath(`/events/${eventId}`);
+}
+
+/**
+ * Removes a cast row. Only rows added by hand can go: the seeded roster is
+ * the record of who is in the company, and is excluded by ticking rather
+ * than deleted.
+ */
+export async function deleteCastAction(rowId: string, fd: FormData) {
+  const eventId = String(fd.get('eventId'));
+  await assertScope(eventId, String(fd.get('locationId')));
+  if (!rowId) throw new Error('No cast row given to remove');
+  const row = await one<{ name: string }>(
+    'SELECT name FROM cast_row WHERE id=$1 AND event_id=$2', [rowId, eventId]);
+  if (!row) return;
+  const onRoster = CAST.some((c) => nameKey(c.split('|')[0]) === nameKey(row.name));
+  if (onRoster) throw new Error(`${row.name} is on the roster and cannot be removed`);
+  await q('DELETE FROM cast_row WHERE id=$1 AND event_id=$2', [rowId, eventId]);
   revalidatePath(`/events/${eventId}`);
 }
 

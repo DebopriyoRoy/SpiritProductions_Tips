@@ -1,16 +1,18 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import {
-  getLocation, LOCATIONS, SECTIONS, getShowTypeForLocation,
+  getLocation, LOCATIONS, SECTIONS, getShowTypeForLocation, CAST,
 } from '@/lib/config';
 import { loadEvent, toEngineInput } from '@/lib/service';
 import { calculate, SECTION_LABEL, Section } from '@/lib/tips';
 import { fmt } from '@/lib/money';
+import { AddPerson } from './AddPerson';
+import { nameKey } from '@/lib/timecardImport';
 import { LocationBar } from '@/app/LocationBar';
 import { SaveBar } from '@/app/SaveBar';
 import { requireUser, canSeeLocation, NotAuthenticated } from '@/lib/auth';
 import {
-  saveEventAction, addStaffAction, deleteStaffAction,
+  saveEventAction, addStaffAction, deleteStaffAction, deleteCastAction,
   clearSelectionsAction, importTimecardAction,
 } from '@/app/actions';
 import { TipsTotal } from '@/app/TipsTotal';
@@ -34,6 +36,10 @@ export const dynamic = 'force-dynamic';
  * was hand-set. The pin-free figure appears only on a pinned row, as the
  * "was" note, where it is the useful comparison.
  */
+/** True for the seeded company, false for anyone added by hand. */
+const onCastRoster = (name: string) =>
+  CAST.some((c) => nameKey(c.split('|')[0]) === nameKey(name));
+
 function AmountCell({
   name, row, label,
 }: {
@@ -399,7 +405,7 @@ export default async function EventPage({
                   <thead>
                     <tr>
                       <th>Name</th><th className="num">Share</th>
-                      <th className="num">Amount</th>
+                      <th className="num">Amount</th><th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -416,12 +422,23 @@ export default async function EventPage({
                           <AmountCell name={`cast_amount_${c.id}`} row={c}
                                       label={c.name} />
                         </td>
+                        <td className="num">
+                          {/* Only people added by hand can be removed: the
+                              seeded roster is the record of the company, and
+                              is excluded by unticking, never deleted. */}
+                          {!onCastRoster(c.name) && (
+                            <button className="btn ghost small" type="submit"
+                                    formAction={deleteCastAction.bind(null, c.id)}
+                                    aria-label={`Remove ${c.name}`}>Remove</button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                     <tr className="total">
                       <td>Cast &amp; Musicians total</td>
                       <td className="num">{r.castWorkedRatioTotal}</td>
                       <td className="num">{money(r.castPoolCents)}</td>
+                      <td></td>
                     </tr>
                   </tbody>
                 </table>
@@ -532,28 +549,13 @@ export default async function EventPage({
             </div>
 
             <h3>Add someone not on the roster</h3>
-            <div className="grid g4">
-              <div>
-                <label className="f" htmlFor="newName">Name</label>
-                <input id="newName" name="name" type="text" form="add-staff" required />
-              </div>
-              <div>
-                <label className="f" htmlFor="newSection">Section</label>
-                <select id="newSection" name="section" form="add-staff">
-                  {show.sections.map((sec) => (
-                    <option key={sec} value={sec}>{SECTION_LABEL[sec]}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="f" htmlFor="newHours">Hours</label>
-                <input id="newHours" className="num" name="hours" type="number"
-                       step="0.01" min="0" defaultValue="0" form="add-staff" />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <button className="btn ghost" type="submit" form="add-staff">Add</button>
-              </div>
-            </div>
+            <AddPerson
+              formId="add-staff"
+              hasCast={show.hasCast}
+              sections={show.sections.map((sec) => ({
+                value: sec, label: SECTION_LABEL[sec],
+              }))}
+            />
           </div>
         </form>
 
