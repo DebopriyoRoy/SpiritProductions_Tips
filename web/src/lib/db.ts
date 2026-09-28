@@ -295,6 +295,9 @@ CREATE INDEX IF NOT EXISTS idx_verify_email ON email_verification(email);
 
 CREATE INDEX IF NOT EXISTS idx_event_loc  ON event(location_id, event_date DESC);
 CREATE INDEX IF NOT EXISTS idx_cast_event ON cast_row(event_id);
+-- One entry per person per night. Also lets the cast be seeded with ON
+-- CONFLICT, so two simultaneous page loads cannot double-seed a show.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cast_event_name ON cast_row(event_id, name);
 CREATE INDEX IF NOT EXISTS idx_staff_event ON staff_row(event_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_timecard
   ON staff_row(event_id, square_timecard_id) WHERE square_timecard_id IS NOT NULL;

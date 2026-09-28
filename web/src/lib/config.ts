@@ -91,10 +91,14 @@ export interface ShowType {
 }
 
 /**
- * The three show types differ in more than cosmetics: the public show splits
- * the pool 50/50 with the cast, while BOTH private shows pay 100% to staff and
- * have no cast at all. ACC's private show also drops the 50/50 and Office
- * sections entirely, narrowing the denominator.
+ * The three show types differ in more than cosmetics. The public show and the
+ * Gower private show both split the pool with the cast; the ACC private show
+ * pays 100% to staff and has no cast at all, and also drops the 50/50 and
+ * Office sections entirely, narrowing the denominator.
+ *
+ * castSharePercent is only the starting value. It is copied onto the event
+ * when the show is created and edited per night on the sheet, so a contract
+ * that splits differently is a field change, not a code change.
  */
 export const SHOW_TYPES: Record<string, ShowType> = {
   public: {
@@ -118,10 +122,11 @@ export const SHOW_TYPES: Record<string, ShowType> = {
     id: 'private-gower',
     label: 'Private Show at Gower (off-site)',
     formula:
-      'Service, Kitchen, Bar and Office = total tips collected / ' +
-      '(Bar & Service + 50/50 + Kitchen + 6 office hours). No cast share.',
-    rules: { castSharePercent: 0, officeHours: 6, oddCentTo: 'staff' },
-    hasCast: false,
+      'Cast & Musicians = 50% of total tips / ratio of cast who worked. ' +
+      'Service, Kitchen, Bar and Office = 50% of total tips / ' +
+      '(Bar & Service + 50/50 + Kitchen + 6 office hours).',
+    rules: { castSharePercent: 50, officeHours: 6, oddCentTo: 'staff' },
+    hasCast: true,
     sections: ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'],
     hasContractService: true,
     roster: {
@@ -154,6 +159,13 @@ export interface LocationConfig {
   squareLocationId: string;
   timezone: string;
   showTypeIds: string[];
+  /**
+   * Sections this venue runs, whatever the show type says. Omitted means the
+   * show type decides. A venue can only narrow a show type, never widen it.
+   */
+  sections?: Section[];
+  /** Set false where the venue never pays a cast, whatever the show type. */
+  hasCast?: boolean;
 }
 
 /** Both venues sit under ONE Square merchant account — location is a filter. */
@@ -171,6 +183,11 @@ export const LOCATIONS: LocationConfig[] = [
     squareLocationId: process.env.SQUARE_LOCATION_ACC ?? '',
     timezone: 'America/St_Johns',
     showTypeIds: ['public', 'private-acc'],
+    // ACC runs no 50/50 float, keeps no reservations office, and pays no
+    // cast — so a Public Show here is a narrower sheet than the same show
+    // type at Spirit, which is unaffected by this.
+    sections: ['BAR', 'SERVICE', 'KITCHEN'],
+    hasCast: false,
   },
 ];
 
@@ -181,6 +198,92 @@ export const getShowType = (id: string): ShowType =>
 
 export const showTypesFor = (loc: LocationConfig) =>
   loc.showTypeIds.map(getShowType);
+
+/**
+ * The show type as a given venue runs it.
+ *
+ * A show type describes the formula; a venue may narrow it. ACC has no 50/50
+ * float, no reservations office and no cast, so a Public Show there is a
+ * different sheet from a Public Show at Spirit despite sharing a name.
+ *
+ * Dropping a section must also drop what it contributes to the divisor, or
+ * the pool is divided by hours nobody can be paid for: losing OFFICE zeroes
+ * the fixed office hours, and losing the cast zeroes the cast share, which
+ * would otherwise hold back a share for people the sheet never shows.
+ */
+/**
+ * Rebuilds the sentence under "Rules for this show" from what the venue
+ * actually runs. The hand-written formula on a show type describes it
+ * unnarrowed, so leaving it alone would tell ACC staff their pool is divided
+ * by a 50/50 float and six office hours that this venue does not have.
+ */
+function describeFormula(
+  sections: Section[], hasCast: boolean, rules: RuleSet,
+): string {
+  const divisor: string[] = [];
+  if (sections.includes('BAR') || sections.includes('SERVICE')) {
+    divisor.push('Bar & Service');
+  }
+  if (sections.includes('FIFTY_FIFTY')) divisor.push('50/50');
+  if (sections.includes('KITCHEN')) divisor.push('Kitchen');
+  if (sections.includes('OFFICE') && rules.officeHours > 0) {
+    divisor.push(`${rules.officeHours} office hours`);
+  }
+
+  const names: string[] = [];
+  if (sections.includes('SERVICE')) names.push('Service');
+  if (sections.includes('KITCHEN')) names.push('Kitchen');
+  if (sections.includes('BAR')) names.push('Bar');
+  if (sections.includes('OFFICE')) names.push('Office');
+  const who = names.length > 1
+    ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+    : (names[0] ?? 'Staff');
+
+  const cast = hasCast
+    ? `Cast & Musicians = ${rules.castSharePercent}% of total tips / ` +
+      'ratio of cast who worked. '
+    : '';
+  const staffShare = hasCast
+    ? `${100 - rules.castSharePercent}% of total tips`
+    : 'total tips collected';
+
+  return `${cast}${who} = ${staffShare} / (${divisor.join(' + ')}).`;
+}
+
+export function getShowTypeForLocation(
+  showTypeId: string, locationId: string,
+): ShowType {
+  const show = getShowType(showTypeId);
+  const loc = getLocation(locationId);
+  if (!loc) return show;
+
+  const sections = loc.sections
+    ? show.sections.filter((s) => loc.sections!.includes(s))
+    : show.sections;
+  const hasCast = loc.hasCast === false ? false : show.hasCast;
+
+  if (sections.length === show.sections.length && hasCast === show.hasCast) {
+    return show;
+  }
+
+  const roster: Partial<Record<Section, string[]>> = {};
+  for (const s of sections) roster[s] = show.roster[s];
+
+  const rules: RuleSet = {
+    ...show.rules,
+    castSharePercent: hasCast ? show.rules.castSharePercent : 0,
+    officeHours: sections.includes('OFFICE') ? show.rules.officeHours : 0,
+  };
+
+  return {
+    ...show,
+    sections,
+    hasCast,
+    roster,
+    rules,
+    formula: describeFormula(sections, hasCast, rules),
+  };
+}
 
 export const SECTIONS: Section[] =
   ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'];

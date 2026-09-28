@@ -3,7 +3,7 @@ import {
   EventRow, CastRow, StaffRowDb, eventForLocation,
 } from './db';
 import { calculate, EventInput, Result, Section, CastEntry, StaffEntry } from './tips';
-import { getLocation, getShowType, CAST } from './config';
+import { getLocation, getShowTypeForLocation, CAST } from './config';
 import { getProvider } from './square';
 import { sectionForWageTitle, isNonTipped, hoursFromTimecard } from './mapping';
 
@@ -16,7 +16,9 @@ export async function createEvent(input: {
   if (!loc.showTypeIds.includes(input.showTypeId)) {
     throw new Error(`${loc.name} does not run "${input.showTypeId}" shows`);
   }
-  const show = getShowType(input.showTypeId);
+  // Narrowed by the venue: ACC runs a Public Show without the 50/50, the
+  // office or a cast, so none of those get seeded there.
+  const show = getShowTypeForLocation(input.showTypeId, input.locationId);
   const id = uid();
   await ensureSchema();
 
@@ -59,35 +61,89 @@ export async function createEvent(input: {
   return id;
 }
 
+/**
+ * Seeds the cast onto a show whose type has a cast but which carries none.
+ *
+ * Cast rows are written once, when the show is created, and only if the type
+ * had a cast at that moment. A type that gains one later — as the Gower
+ * private show did — would otherwise leave every show created before the
+ * change with an empty cast panel, and no amount of pressing Calculate would
+ * fill it. Doing it on load keeps the app consistent with its own config
+ * without an out-of-band migration step.
+ *
+ * ON CONFLICT is what makes this safe to run from a read path: two
+ * simultaneous loads cannot seed the same night twice.
+ */
+async function ensureCastRows(
+  eventId: string, showTypeId: string, locationId: string,
+): Promise<boolean> {
+  const show = getShowTypeForLocation(showTypeId, locationId);
+  if (!show.hasCast) return false;
+
+  await tx(async (c) => {
+    for (const [i, raw] of CAST.entries()) {
+      const [name, tech] = raw.split('|');
+      await c.q(
+        `INSERT INTO cast_row (id,event_id,name,ratio,worked,technical,sort)
+         VALUES ($1,$2,$3,1,false,$4,$5)
+         ON CONFLICT (event_id, name) DO NOTHING`,
+        [uid(), eventId, name, !!tech, i],
+      );
+    }
+  });
+  return true;
+}
+
 export async function loadEvent(eventId: string, locationId: string) {
   const event = await eventForLocation(eventId, locationId);
   if (!event) return null;
-  const cast = await q<CastRow>(
+  let cast = await q<CastRow>(
     'SELECT * FROM cast_row WHERE event_id = $1 ORDER BY sort', [eventId]);
+  if (!cast.length
+      && await ensureCastRows(eventId, event.show_type_id, locationId)) {
+    cast = await q<CastRow>(
+      'SELECT * FROM cast_row WHERE event_id = $1 ORDER BY sort', [eventId]);
+  }
   const staff = await q<StaffRowDb>(
     'SELECT * FROM staff_row WHERE event_id = $1 ORDER BY section, sort', [eventId]);
   return { event, cast, staff };
 }
 
+/**
+ * Narrowed by the venue, not just the show type.
+ *
+ * The engine pays whatever rows it is handed, so a section the venue does not
+ * run has to be filtered out here — hiding it in the page alone would leave
+ * it silently taking a share. The stored cast share and office hours are
+ * overridden for the same reason: a show created before the venue was
+ * narrowed still carries the wider numbers on its row.
+ */
 export function toEngineInput(
   event: EventRow, cast: CastRow[], staff: StaffRowDb[],
 ): EventInput {
+  const show = getShowTypeForLocation(event.show_type_id, event.location_id);
+  const runs = new Set<Section>(show.sections);
+
   return {
     gratuityCents: event.gratuity_cents,
     cashTipsCents: event.cash_cents,
     squareTipsCents: event.square_cents,
     totalOverrideCents: event.total_override_cents,
-    cast: cast.map<CastEntry>((c) => ({
-      id: c.id, name: c.name, ratio: c.ratio,
-      worked: c.worked, technical: c.technical,
-    })),
-    staff: staff.map<StaffEntry>((s) => ({
-      id: s.id, name: s.name, section: s.section as Section,
-      hours: s.hours, included: s.included, note: s.note,
-    })),
+    cast: show.hasCast
+      ? cast.map<CastEntry>((c) => ({
+          id: c.id, name: c.name, ratio: c.ratio,
+          worked: c.worked, technical: c.technical,
+        }))
+      : [],
+    staff: staff
+      .filter((s) => runs.has(s.section as Section))
+      .map<StaffEntry>((s) => ({
+        id: s.id, name: s.name, section: s.section as Section,
+        hours: s.hours, included: s.included, note: s.note,
+      })),
     rules: {
-      castSharePercent: event.cast_share_percent,
-      officeHours: event.office_hours,
+      castSharePercent: show.hasCast ? event.cast_share_percent : 0,
+      officeHours: runs.has('OFFICE') ? event.office_hours : 0,
       oddCentTo: event.odd_cent_to as 'cast' | 'staff',
     },
   };
@@ -109,7 +165,7 @@ export async function syncFromSquare(eventId: string, locationId: string) {
   const loaded = await loadEvent(eventId, locationId);
   if (!loaded) throw new Error('Event not found for this location');
   const loc = getLocation(locationId)!;
-  const show = getShowType(loaded.event.show_type_id);
+  const show = getShowTypeForLocation(loaded.event.show_type_id, locationId);
   const provider = getProvider();
   const squareLocation = loc.squareLocationId || `demo-${locationId}`;
 

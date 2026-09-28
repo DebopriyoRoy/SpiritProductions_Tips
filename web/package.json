@@ -11,7 +11,8 @@
     "screenshots": "tsx scripts/screenshots.ts",
     "migrate": "tsx scripts/migrate.ts",
     "create-admin": "tsx scripts/create-admin.ts",
-    "mail-test": "tsx scripts/mail-test.ts"
+    "mail-test": "tsx scripts/mail-test.ts",
+    "backfill-cast": "tsx scripts/backfill-cast.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

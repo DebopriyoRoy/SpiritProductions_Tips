@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { loadEvent, toEngineInput } from '@/lib/service';
 import { calculate } from '@/lib/tips';
 import { buildWorkbook } from '@/lib/xlsxExport';
-import { getLocation, getShowType } from '@/lib/config';
+import { getLocation, getShowTypeForLocation } from '@/lib/config';
 import { currentUser, canSeeLocation } from '@/lib/auth';
 
 export async function GET(
@@ -22,7 +22,8 @@ export async function GET(
   const loaded = await loadEvent(id, loc.id);
   if (!loaded) return new Response('Not found for this location', { status: 404 });
 
-  const show = getShowType(loaded.event.show_type_id);
+  const show = getShowTypeForLocation(
+    loaded.event.show_type_id, loaded.event.location_id);
   const r = calculate(toEngineInput(loaded.event, loaded.cast, loaded.staff));
   const buf = await buildWorkbook(r, {
     locationName: loc.name,

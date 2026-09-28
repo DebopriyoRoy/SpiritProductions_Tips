@@ -25,6 +25,28 @@ describe('the rosters', () => {
     expect(keys.filter((k, i) => keys.indexOf(k) !== i)).toEqual([]);
   });
 
+  /**
+   * Which shows carry a cast decides who the pool is split with, so pin it
+   * rather than leave it to be changed by accident.
+   */
+  it('gives a cast to the public and Gower shows, but not ACC', () => {
+    expect(SHOW_TYPES.public.hasCast).toBe(true);
+    expect(SHOW_TYPES['private-gower'].hasCast).toBe(true);
+    expect(SHOW_TYPES['private-acc'].hasCast).toBe(false);
+  });
+
+  it('never gives a cast share to a show with no cast', () => {
+    for (const [id, show] of Object.entries(SHOW_TYPES)) {
+      if (!show.hasCast) {
+        expect(show.rules.castSharePercent, `${id} pays a cast it does not have`)
+          .toBe(0);
+      } else {
+        expect(show.rules.castSharePercent, `${id} has a cast but pays it nothing`)
+          .toBeGreaterThan(0);
+      }
+    }
+  });
+
   it('has a section for every roster a show declares', () => {
     for (const [id, show] of Object.entries(SHOW_TYPES)) {
       for (const [section] of sectionsOf(id)) {

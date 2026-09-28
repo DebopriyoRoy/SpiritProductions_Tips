@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { getLocation, LOCATIONS, SECTIONS, getShowType } from '@/lib/config';
+import {
+  getLocation, LOCATIONS, SECTIONS, getShowTypeForLocation,
+} from '@/lib/config';
 import { loadEvent, toEngineInput } from '@/lib/service';
 import { calculate, SECTION_LABEL, Section } from '@/lib/tips';
 import { fmt } from '@/lib/money';
@@ -40,7 +42,9 @@ export default async function EventPage({
   const loaded = await loadEvent(id, loc.id);
   if (!loaded) notFound();
   const { event, cast, staff } = loaded;
-  const show = getShowType(event.show_type_id);
+  // Narrowed by venue: ACC runs no 50/50, no office and no cast, even on a
+  // show type that does elsewhere.
+  const show = getShowTypeForLocation(event.show_type_id, loc.id);
   const r = calculate(toEngineInput(event, cast, staff));
 
   const money = (c: number) => fmt(c);
