@@ -133,6 +133,7 @@ export function toEngineInput(
       ? cast.map<CastEntry>((c) => ({
           id: c.id, name: c.name, ratio: c.ratio,
           worked: c.worked, technical: c.technical,
+          pinnedCents: c.pinned_cents,
         }))
       : [],
     staff: staff
@@ -140,6 +141,7 @@ export function toEngineInput(
       .map<StaffEntry>((s) => ({
         id: s.id, name: s.name, section: s.section as Section,
         hours: s.hours, included: s.included, note: s.note,
+        pinnedCents: s.pinned_cents,
       })),
     rules: {
       castSharePercent: show.hasCast ? event.cast_share_percent : 0,

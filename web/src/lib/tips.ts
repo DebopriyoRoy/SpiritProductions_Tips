@@ -28,6 +28,8 @@ export interface CastEntry {
   worked: boolean;
   /** Technical is paid from the cast pool but listed separately. */
   technical?: boolean;
+  /** Hand-set payout. null means "work it out from the pool". */
+  pinnedCents?: Cents | null;
 }
 
 export interface StaffEntry {
@@ -38,6 +40,8 @@ export interface StaffEntry {
   /** Excluded rows stay visible with a reason, never deleted. */
   included: boolean;
   note?: string;
+  /** Hand-set payout. null means "work it out from the hours". */
+  pinnedCents?: Cents | null;
 }
 
 export interface RuleSet {
@@ -70,6 +74,14 @@ export interface Payout {
   id: string;
   name: string;
   amountCents: Cents;
+  /**
+   * What the pool would have paid this row had nobody been pinned. Kept
+   * beside the paid figure so a reviewer can see what a hand-set amount
+   * changed, and by how much.
+   */
+  calculatedCents: Cents;
+  /** True when amountCents was typed in rather than worked out. */
+  pinned: boolean;
 }
 
 export interface CastPayout extends Payout {
@@ -106,8 +118,10 @@ export interface Result {
   unallocatedCents: Cents;
   unallocatedCastCents: Cents;
   unallocatedStaffCents: Cents;
-  /** cast + staff + unallocated - total. Always 0; asserted below. */
+  /** cast + staff + unallocated - total - overpaid. Always 0; asserted below. */
   reconciliationCents: Cents;
+  /** How far hand-set amounts exceed the pool. 0 when nothing is overspent. */
+  overpaidCents: Cents;
   /** What naive per-row rounding would have paid, and the resulting error. */
   naiveRoundedTotalCents: Cents;
   roundingDriftCents: Cents;
@@ -116,6 +130,51 @@ export interface Result {
 
 /** Hours carry two decimals; scale to integers so weights stay exact. */
 const hoursToWeight = (h: number) => Math.round(h * 100);
+
+/**
+ * Shares out a pool where some rows carry a hand-set amount.
+ *
+ * A pinned row is paid exactly what it was given and takes no part in the
+ * division; what is left over is shared among the rest by weight, so the pool
+ * still lands on the cent and the sheet still reconciles.
+ *
+ * Pinning more than the pool holds is a real mistake — it cannot be honoured
+ * and rebalanced at the same time, since there is nothing left to rebalance.
+ * The pins are paid, everyone else gets nothing, and the excess is returned
+ * so the sheet can say so rather than quietly paying out money that was never
+ * collected.
+ */
+function allocateWithPins(
+  pool: Cents, weights: number[], pins: (Cents | null)[],
+): { amounts: Cents[]; overpaidCents: Cents; undistributedCents: Cents } {
+  const pinnedTotal = pins.reduce<Cents>((a, p) => a + (p ?? 0), 0);
+  const remainder = pool - pinnedTotal;
+  const free = Math.max(0, remainder);
+  const freeWeights = weights.map((w, i) => (pins[i] == null ? w : 0));
+  const freeWeightTotal = freeWeights.reduce((a, b) => a + b, 0);
+
+  // Everyone left is pinned, or nobody is ticked: there is money over and
+  // nobody eligible to receive it. Hold it rather than forcing it onto a
+  // pinned row, which would contradict the amount that was typed.
+  if (freeWeightTotal === 0) {
+    return {
+      amounts: weights.map((_, i) => pins[i] ?? 0),
+      overpaidCents: remainder < 0 ? -remainder : 0,
+      undistributedCents: free,
+    };
+  }
+
+  const shared = allocateByWeight(free, freeWeights);
+  return {
+    amounts: weights.map((_, i) => pins[i] ?? shared[i]),
+    overpaidCents: remainder < 0 ? -remainder : 0,
+    undistributedCents: 0,
+  };
+}
+
+/** A pin only counts when the row is actually being paid. */
+const pinOf = (active: boolean, pinned: Cents | null | undefined) =>
+  active && pinned != null ? pinned : null;
 
 /**
  * The office is paid as a fixed block of hours, set by the rule set and
@@ -177,7 +236,12 @@ export function calculate(input: EventInput): Result {
   );
   const castWorkedRatioTotal =
     castWeights.reduce((a, b) => a + b, 0) / 100;
-  const castAmounts = allocateByWeight(castPoolCents, castWeights);
+  const castPins = input.cast.map((c) => pinOf(c.worked, c.pinnedCents));
+  // The baseline is what the pool alone would have paid, so the sheet can
+  // show a hand-set amount next to the figure it replaced.
+  const castBaseline = allocateByWeight(castPoolCents, castWeights);
+  const castAlloc = allocateWithPins(castPoolCents, castWeights, castPins);
+  const castAmounts = castAlloc.amounts;
   const cast: CastPayout[] = input.cast.map((c, i) => ({
     id: c.id,
     name: c.name,
@@ -185,6 +249,8 @@ export function calculate(input: EventInput): Result {
     worked: c.worked,
     technical: !!c.technical,
     amountCents: castAmounts[i],
+    calculatedCents: castBaseline[i],
+    pinned: castPins[i] != null,
   }));
   if (castWorkedRatioTotal === 0 && castPoolCents > 0) {
     warnings.push('No cast marked as worked — the cast pool cannot be distributed.');
@@ -212,8 +278,19 @@ export function calculate(input: EventInput): Result {
 
   const staffHoursTotal =
     (staffWeights.reduce((a, b) => a + b, 0) + phantomOfficeWeight) / 100;
-  const staffAmounts = allocateByWeight(
+  const staffPins = input.staff.map((s) => pinOf(s.included, s.pinnedCents));
+  const staffBaselineAll = allocateByWeight(
     staffPoolCents, [...staffWeights, phantomOfficeWeight]);
+  const staffBaselineHeld = staffBaselineAll.pop() ?? 0;
+
+  // The unmanned office block is pinned to itself: it is a real claim on the
+  // pool that no row can receive, so it must not be rebalanced away either.
+  const staffAlloc = allocateWithPins(
+    staffPoolCents,
+    [...staffWeights, phantomOfficeWeight],
+    [...staffPins, null],
+  );
+  const staffAmounts = staffAlloc.amounts;
   const heldOfficeCents = staffAmounts.pop() ?? 0;
 
   const staff: StaffPayout[] = input.staff.map((s, i) => ({
@@ -222,7 +299,32 @@ export function calculate(input: EventInput): Result {
     section: s.section,
     hours: officeHours[i] ?? s.hours,
     amountCents: staffAmounts[i],
+    calculatedCents: staffBaselineAll[i],
+    pinned: staffPins[i] != null,
   }));
+  // A payout typed against somebody who is not ticked cannot be paid — the
+  // tick is what says they were there. Ignoring it silently would leave
+  // someone believing they had been paid, so name them.
+  const ignoredPins = [
+    ...input.cast.filter((c) => !c.worked && c.pinnedCents != null).map((c) => c.name),
+    ...input.staff.filter((s) => !s.included && s.pinnedCents != null).map((s) => s.name),
+  ];
+  if (ignoredPins.length) {
+    warnings.push(
+      `A payout was typed for ${ignoredPins.join(', ')}, but ` +
+      `${ignoredPins.length === 1 ? 'that row is' : 'those rows are'} not ` +
+      `ticked, so it was not paid. Tick them to pay it.`,
+    );
+  }
+
+  const overpaidCents = castAlloc.overpaidCents + staffAlloc.overpaidCents;
+  if (overpaidCents > 0) {
+    warnings.push(
+      `Hand-set amounts come to ${(overpaidCents / 100).toFixed(2)} more than ` +
+      `the pool holds. Everyone not hand-set has been left at 0.00, and the ` +
+      `sheet no longer balances — lower the typed amounts to fix it.`,
+    );
+  }
   if (officeUnmanned) {
     warnings.push(
       `The office block of ${rules.officeHours.toFixed(2)} hours has nobody ` +
@@ -275,25 +377,31 @@ export function calculate(input: EventInput): Result {
 
   // A pool with no eligible recipients cannot be distributed. That is a real
   // state (nobody ticked yet), not a bug — hold the money visibly instead.
-  const unallocatedCastCents = castWorkedRatioTotal === 0 ? castPoolCents : 0;
+  const unallocatedCastCents = castAlloc.undistributedCents;
   const unallocatedStaffCents =
-    staffHoursTotal === 0 ? staffPoolCents : heldOfficeCents;
+    staffAlloc.undistributedCents + heldOfficeCents;
 
-  // With recipients present, the allocator must place every cent. This assertion
-  // catches a genuine allocation bug without firing on the empty case above.
-  if (castSum !== castPoolCents - unallocatedCastCents) {
+  // With recipients present, the allocator must place every cent. These
+  // assertions catch a genuine allocation bug without firing on the empty
+  // case above, and allow for hand-set amounts that exceed their pool: that
+  // overspend is the operator's doing, not a lost cent, and it is reported
+  // rather than thrown.
+  if (castSum !== castPoolCents - unallocatedCastCents + castAlloc.overpaidCents) {
     throw new Error(
       `Cast allocation lost cents: ${castSum} != ${castPoolCents - unallocatedCastCents}`,
     );
   }
-  if (staffSum !== staffPoolCents - unallocatedStaffCents) {
+  if (staffSum !== staffPoolCents - unallocatedStaffCents + staffAlloc.overpaidCents) {
     throw new Error(
       `Staff allocation lost cents: ${staffSum} != ${staffPoolCents - unallocatedStaffCents}`,
     );
   }
 
   const unallocatedCents = unallocatedCastCents + unallocatedStaffCents;
-  const reconciliationCents = castSum + staffSum + unallocatedCents - totalCents;
+  // Non-zero only when hand-set amounts overshoot; CHECK on the sheet shows
+  // it, which is the whole point of surfacing it instead of throwing.
+  const reconciliationCents =
+    castSum + staffSum + unallocatedCents - totalCents - overpaidCents;
   if (reconciliationCents !== 0) {
     throw new Error(
       `Tip allocation failed to reconcile: ${castSum} + ${staffSum} + ` +
@@ -329,6 +437,7 @@ export function calculate(input: EventInput): Result {
 
   return {
     totalCents,
+    overpaidCents,
     castPoolCents,
     staffPoolCents,
     castRatePerShare,

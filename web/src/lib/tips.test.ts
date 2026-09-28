@@ -367,3 +367,141 @@ describe('the office is a fixed block of hours', () => {
     expect(barRow.amountCents).toBe(Math.round((53627 * 10) / 16));
   });
 });
+
+describe('hand-set amounts', () => {
+  const workedIds = cast.filter((c) => c.worked).map((c) => c.id);
+
+  it('pays a pinned cast member exactly what was typed', () => {
+    const r = run({
+      cast: cast.map((c) =>
+        c.id === workedIds[0] ? { ...c, pinnedCents: toCents(100) } : c),
+    });
+    const pinned = r.cast.find((c) => c.id === workedIds[0])!;
+    expect(pinned.amountCents).toBe(10000);
+    expect(pinned.pinned).toBe(true);
+  });
+
+  it('still reconciles to the cent, with the rest sharing the remainder', () => {
+    const r = run({
+      cast: cast.map((c) =>
+        c.id === workedIds[0] ? { ...c, pinnedCents: toCents(100) } : c),
+    });
+    expect(r.reconciliationCents).toBe(0);
+    expect(r.overpaidCents).toBe(0);
+    const castSum = r.cast.reduce((a, b) => a + b.amountCents, 0);
+    expect(castSum).toBe(r.castPoolCents);
+    // The others split what is left, so each is above the unpinned share.
+    const others = r.cast.filter((c) => c.worked && c.id !== workedIds[0]);
+    expect(others.every((c) => c.amountCents > 0)).toBe(true);
+  });
+
+  it('keeps the calculated figure beside the typed one', () => {
+    const base = run();
+    const r = run({
+      cast: cast.map((c) =>
+        c.id === workedIds[0] ? { ...c, pinnedCents: toCents(100) } : c),
+    });
+    const before = base.cast.find((c) => c.id === workedIds[0])!.amountCents;
+    const after = r.cast.find((c) => c.id === workedIds[0])!;
+    expect(after.calculatedCents).toBe(before);
+    expect(after.amountCents).not.toBe(after.calculatedCents);
+  });
+
+  it('pins a staff row without disturbing the hours it reports', () => {
+    const target = staff[0];
+    const r = run({
+      staff: staff.map((s) =>
+        s.id === target.id ? { ...s, pinnedCents: toCents(50) } : s),
+    });
+    const row = r.staff.find((s) => s.id === target.id)!;
+    expect(row.amountCents).toBe(5000);
+    expect(row.pinned).toBe(true);
+    expect(row.hours).toBe(target.hours);
+    expect(r.reconciliationCents).toBe(0);
+    expect(r.staff.reduce((a, b) => a + b.amountCents, 0))
+      .toBe(r.staffPoolCents);
+  });
+
+  it('ignores a pin on a row that is not being paid', () => {
+    const notWorked = cast.find((c) => !c.worked)!;
+    const r = run({
+      cast: cast.map((c) =>
+        c.id === notWorked.id ? { ...c, pinnedCents: toCents(100) } : c),
+    });
+    const row = r.cast.find((c) => c.id === notWorked.id)!;
+    expect(row.amountCents).toBe(0);
+    expect(row.pinned).toBe(false);
+    expect(r.reconciliationCents).toBe(0);
+  });
+
+  /**
+   * Pinning more than the pool holds cannot be honoured and rebalanced at
+   * once. It must report rather than throw, or a typo takes the sheet down.
+   */
+  it('reports an overspend instead of throwing', () => {
+    const r = run({
+      cast: cast.map((c) =>
+        c.worked ? { ...c, pinnedCents: toCents(1000) } : c),
+    });
+    expect(r.overpaidCents).toBeGreaterThan(0);
+    expect(r.warnings.some((w) => /more than the pool holds/i.test(w))).toBe(true);
+  });
+
+  it('changes nothing at all when no amount is pinned', () => {
+    const plain = run();
+    const withNulls = run({
+      cast: cast.map((c) => ({ ...c, pinnedCents: null })),
+      staff: staff.map((s) => ({ ...s, pinnedCents: null })),
+    });
+    expect(withNulls.cast.map((c) => c.amountCents))
+      .toEqual(plain.cast.map((c) => c.amountCents));
+    expect(withNulls.staff.map((s) => s.amountCents))
+      .toEqual(plain.staff.map((s) => s.amountCents));
+  });
+});
+
+describe('a payout typed against a row that is not ticked', () => {
+  it('says so rather than swallowing it', () => {
+    const notWorked = cast.find((c) => !c.worked)!;
+    const r = run({
+      cast: cast.map((c) =>
+        c.id === notWorked.id ? { ...c, pinnedCents: toCents(100) } : c),
+    });
+    expect(r.warnings.some((w) => w.includes(notWorked.name))).toBe(true);
+    expect(r.warnings.some((w) => /not\s+ticked/i.test(w))).toBe(true);
+  });
+});
+
+describe('pinning the only person who is eligible', () => {
+  /**
+   * Regression: pinning the sole ticked cast member left the remainder with
+   * no recipient, and the allocator threw "Cast allocation lost cents"
+   * rather than holding it — which took the whole sheet down.
+   */
+  const onlyOne = cast.map((c, i) => ({ ...c, worked: i === 0 }));
+
+  it('holds the remainder instead of throwing', () => {
+    const r = run({
+      cast: onlyOne.map((c, i) =>
+        i === 0 ? { ...c, pinnedCents: toCents(100) } : c),
+    });
+    expect(r.cast[0].amountCents).toBe(10000);
+    expect(r.unallocatedCastCents).toBe(r.castPoolCents - 10000);
+    expect(r.reconciliationCents).toBe(0);
+  });
+
+  it('says the held money has not been paid out', () => {
+    const r = run({
+      cast: onlyOne.map((c, i) =>
+        i === 0 ? { ...c, pinnedCents: toCents(100) } : c),
+    });
+    expect(r.warnings.some((w) => /unallocated and has NOT been paid/i.test(w)))
+      .toBe(true);
+  });
+
+  it('still holds the whole pool when nobody is ticked at all', () => {
+    const r = run({ cast: cast.map((c) => ({ ...c, worked: false })) });
+    expect(r.unallocatedCastCents).toBe(r.castPoolCents);
+    expect(r.reconciliationCents).toBe(0);
+  });
+});

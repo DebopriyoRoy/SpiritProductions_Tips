@@ -483,3 +483,13 @@ label.inline input { margin: 0; }
 .authcard .otpnote { margin: 8px 0 0; font-size: 13px; }
 .authcard .otpnote.err { color: var(--danger, #9b2c2c); }
 .authcard .verified { margin: 8px 0 0; font-size: 13px; color: var(--accent); font-weight: 600; }
+
+/* ---- editable payout cell ---- */
+/* Placeholder carries the calculated figure, so an untouched row shows what
+   the pool would pay without pre-filling (and thereby pinning) it. */
+.amt-edit { width: 96px; padding: 5px 8px; font-size: 13.5px; }
+.amt-edit::placeholder { color: var(--ink-2); opacity: 1; }
+.wasamt {
+  display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted);
+  font-family: var(--mono); white-space: nowrap;
+}

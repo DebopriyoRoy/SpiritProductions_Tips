@@ -75,11 +75,14 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   // ---- Cast (public shows only) ----
   if (meta.hasCast) {
   title('Cast & Musicians');
-  header(['Name', '', 'Ratio', 'Worked', 'Amount']);
+  header(['Name', 'Hand-set', 'Ratio', 'Worked', 'Amount']);
   for (const c of r.cast) {
     const row = ws.addRow([
-      c.technical ? `${c.name} (Technical)` : c.name, '', c.ratio,
-      c.worked ? 1 : 0, c.amountCents / 100,
+      c.technical ? `${c.name} (Technical)` : c.name,
+      // A hand-set payout is a decision someone made, so it travels with the
+      // sheet along with the figure it replaced.
+      c.pinned ? `set by hand (pool: ${fmt(c.calculatedCents)})` : '',
+      c.ratio, c.worked ? 1 : 0, c.amountCents / 100,
     ]);
     row.font = { name: 'Arial', size: 10 };
     row.getCell(5).numFmt = MONEY;
@@ -95,9 +98,13 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
     const rows = r.staff.filter((s) => s.section === section);
     if (rows.length === 0) continue;
     title(SECTION_LABEL[section]);
-    header(['Name', 'Hours', '', '', 'Amount']);
+    header(['Name', 'Hours', 'Hand-set', '', 'Amount']);
     for (const s of rows) {
-      const row = ws.addRow([s.name, s.hours, '', '', s.amountCents / 100]);
+      const row = ws.addRow([
+        s.name, s.hours,
+        s.pinned ? `set by hand (pool: ${fmt(s.calculatedCents)})` : '',
+        '', s.amountCents / 100,
+      ]);
       row.font = { name: 'Arial', size: 10 };
       row.getCell(2).numFmt = HOURS;
       row.getCell(5).numFmt = MONEY;

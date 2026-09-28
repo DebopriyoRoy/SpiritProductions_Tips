@@ -59,6 +59,22 @@ async function assertScope(eventId: string, locationId: string) {
   if (!row) throw new Error('Event does not belong to the selected location');
 }
 
+/**
+ * A typed payout, in cents, or null when the box is left empty.
+ *
+ * Empty is meaningful: it is how a hand-set amount is removed and the row
+ * handed back to the pool. A nonsense entry is treated as empty rather than
+ * as zero, since paying somebody 0.00 and leaving them to the pool are very
+ * different instructions.
+ */
+function pinnedCents(value: FormDataEntryValue): number | null {
+  const raw = String(value).trim();
+  if (raw === '') return null;
+  const n = Number(raw.replace(/[^0-9.-]/g, ''));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return toCents(n);
+}
+
 export async function saveEventAction(fd: FormData) {
   const eventId = String(fd.get('eventId'));
   const locationId = String(fd.get('locationId'));
@@ -115,6 +131,20 @@ export async function saveEventAction(fd: FormData) {
       if (m) {
         await c.q('UPDATE staff_row SET note=$1 WHERE id=$2 AND event_id=$3',
           [String(value), m[1], eventId]);
+        continue;
+      }
+      // A hand-set payout. Blank clears it and hands the row back to the
+      // pool, which is the only way to undo one.
+      m = key.match(/^cast_amount_(.+)$/);
+      if (m) {
+        await c.q('UPDATE cast_row SET pinned_cents=$1 WHERE id=$2 AND event_id=$3',
+          [pinnedCents(value), m[1], eventId]);
+        continue;
+      }
+      m = key.match(/^staff_amount_(.+)$/);
+      if (m) {
+        await c.q('UPDATE staff_row SET pinned_cents=$1 WHERE id=$2 AND event_id=$3',
+          [pinnedCents(value), m[1], eventId]);
       }
     }
 

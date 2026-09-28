@@ -19,6 +19,49 @@ import { HOURS_CAP } from '@/lib/timecardImport';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * The payout cell: editable, and honest about having been edited.
+ *
+ * Typing a figure pins it; the rest of the pool is then shared among everyone
+ * who is not pinned, so the night still reconciles. Clearing the box hands
+ * the row back to the pool, which is the only way to undo a pin — hence the
+ * amount showing as a placeholder rather than a value, so an untouched row
+ * stays untouched and does not pin itself the moment the sheet is saved.
+ *
+ * The placeholder is what this row is being paid NOW, rebalancing included,
+ * not what it would have been paid had nobody been pinned. Showing the
+ * latter would quietly misreport everyone else's pay the moment one amount
+ * was hand-set. The pin-free figure appears only on a pinned row, as the
+ * "was" note, where it is the useful comparison.
+ */
+function AmountCell({
+  name, row, label,
+}: {
+  name: string;
+  row: { amountCents: number; calculatedCents: number; pinned: boolean };
+  label: string;
+}) {
+  return (
+    <>
+      <input
+        className="num amt-edit"
+        name={name}
+        type="number"
+        step="0.01"
+        min="0"
+        defaultValue={row.pinned ? (row.amountCents / 100).toFixed(2) : ''}
+        placeholder={fmt(row.amountCents)}
+        aria-label={`${label} amount`}
+      />
+      {row.pinned && (
+        <span className="wasamt" title="Hand-set. The pool would have paid this.">
+          was {fmt(row.calculatedCents)}
+        </span>
+      )}
+    </>
+  );
+}
+
 export default async function EventPage({
   params, searchParams,
 }: {
@@ -369,7 +412,10 @@ export default async function EventPage({
                                  defaultValue={c.ratio}
                                  aria-label={`${c.name} share`} />
                         </td>
-                        <td className="num">{money(c.amountCents)}</td>
+                        <td className="num" style={{ width: 150 }}>
+                          <AmountCell name={`cast_amount_${c.id}`} row={c}
+                                      label={c.name} />
+                        </td>
                       </tr>
                     ))}
                     <tr className="total">
@@ -453,7 +499,10 @@ export default async function EventPage({
                                      placeholder={!src.included && src.hours > 0 ? 'reason required' : ''}
                                      aria-label={`${s.name} note`} />
                             </td>
-                            <td className="num">{money(s.amountCents)}</td>
+                            <td className="num" style={{ width: 150 }}>
+                              <AmountCell name={`staff_amount_${s.id}`} row={s}
+                                          label={s.name} />
+                            </td>
                             <td className="num">
                               <button className="btn ghost small" type="submit"
                                       formAction={deleteStaffAction.bind(null, s.id)}

@@ -240,7 +240,9 @@ CREATE TABLE IF NOT EXISTS cast_row (
   ratio     REAL NOT NULL DEFAULT 1,
   worked    BOOLEAN NOT NULL DEFAULT false,
   technical BOOLEAN NOT NULL DEFAULT false,
-  sort      INTEGER NOT NULL DEFAULT 0
+  sort      INTEGER NOT NULL DEFAULT 0,
+  -- Hand-set payout in cents. NULL means "work it out from the pool".
+  pinned_cents INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS staff_row (
@@ -254,7 +256,9 @@ CREATE TABLE IF NOT EXISTS staff_row (
   square_timecard_id TEXT,
   source             TEXT NOT NULL DEFAULT 'manual',
   overridden         BOOLEAN NOT NULL DEFAULT false,
-  sort               INTEGER NOT NULL DEFAULT 0
+  sort               INTEGER NOT NULL DEFAULT 0,
+  -- Hand-set payout in cents. NULL means "work it out from the hours".
+  pinned_cents       INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS sync_run (
@@ -348,12 +352,14 @@ ALTER TABLE event
   ADD COLUMN IF NOT EXISTS created_at           TIMESTAMPTZ NOT NULL DEFAULT now();
 
 ALTER TABLE cast_row
+  ADD COLUMN IF NOT EXISTS pinned_cents INTEGER,
   ADD COLUMN IF NOT EXISTS ratio     REAL NOT NULL DEFAULT 1,
   ADD COLUMN IF NOT EXISTS worked    BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS technical BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS sort      INTEGER NOT NULL DEFAULT 0;
 
 ALTER TABLE staff_row
+  ADD COLUMN IF NOT EXISTS pinned_cents       INTEGER,
   ADD COLUMN IF NOT EXISTS hours              REAL NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS included           BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS note               TEXT NOT NULL DEFAULT '',
@@ -462,11 +468,15 @@ export interface EventRow {
 export interface CastRow {
   id: string; event_id: string; name: string; ratio: number;
   worked: boolean; technical: boolean; sort: number;
+  /** Hand-set payout in cents; null means the pool decides. */
+  pinned_cents: number | null;
 }
 export interface StaffRowDb {
   id: string; event_id: string; name: string; section: string; hours: number;
   included: boolean; note: string; square_timecard_id: string | null;
   source: string; overridden: boolean; sort: number;
+  /** Hand-set payout in cents; null means the hours decide. */
+  pinned_cents: number | null;
 }
 
 /**

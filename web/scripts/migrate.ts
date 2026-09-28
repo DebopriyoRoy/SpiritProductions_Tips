@@ -24,10 +24,13 @@ const EXPECTED: Record<string, string[]> = {
     'cash_cents', 'square_cents', 'total_override_cents', 'cast_share_percent',
     'office_hours', 'odd_cent_to', 'status', 'created_at',
   ],
-  cast_row: ['id', 'event_id', 'name', 'ratio', 'worked', 'technical', 'sort'],
+  cast_row: [
+    'id', 'event_id', 'name', 'ratio', 'worked', 'technical', 'sort',
+    'pinned_cents',
+  ],
   staff_row: [
     'id', 'event_id', 'name', 'section', 'hours', 'included', 'note',
-    'square_timecard_id', 'source', 'overridden', 'sort',
+    'square_timecard_id', 'source', 'overridden', 'sort', 'pinned_cents',
   ],
   sync_run: ['id', 'event_id', 'location_id', 'started_at', 'status', 'detail'],
   password_reset: [
