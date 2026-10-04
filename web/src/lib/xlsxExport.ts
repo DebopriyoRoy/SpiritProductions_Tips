@@ -18,6 +18,9 @@ export interface ExportMeta {
   /** Only these sections, in this order. */
   sections: Section[];
   formula: string;
+  /** A night with only screech-in: written as the small screech-in sheet. */
+  screechOnly?: boolean;
+  sageRef?: string;
 }
 
 export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer> {
@@ -41,6 +44,54 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
     return row;
   };
 
+  const header = (cols: string[]) => {
+    const row = ws.addRow(cols);
+    row.font = { name: 'Arial', size: 10, bold: true };
+    row.alignment = { horizontal: 'center' };
+    row.getCell(1).alignment = { horizontal: 'left' };
+    return row;
+  };
+
+  const screechBlock = () => {
+    // As the workbook lays it out: the tips collected on their own line,
+    // then each host and helper with what they receive.
+    for (const [n, s] of r.screech.entries()) {
+      const head = ws.addRow([
+        r.screech.length > 1 ? `Screech-In ${n + 1}` : 'Tips collected',
+        s.guests != null ? `${s.guests} guests` : '',
+        s.sageRef ? `Sage ${s.sageRef}` : '', '', s.tipsCents / 100,
+      ]);
+      head.font = { name: 'Arial', size: 10, bold: true };
+      head.getCell(5).numFmt = MONEY;
+      for (const h of s.hosts) {
+        const row = ws.addRow([h.helper ? `${h.name} (Helper)` : h.name, '', '', '',
+          h.amountCents / 100]);
+        row.font = { name: 'Arial', size: 10 };
+        row.getCell(5).numFmt = MONEY;
+      }
+      if (s.unallocatedCents > 0) {
+        label('UNALLOCATED (no host)', s.unallocatedCents / 100, MONEY);
+      }
+    }
+  };
+
+  if (meta.screechOnly) {
+    label('Event', 'Screech - IN').font = { name: 'Arial', size: 10, bold: true };
+    label('Date', meta.eventDate);
+    ws.addRow([]);
+    header(['Person Name', '', '', '', 'Amount Receivable']);
+    screechBlock();
+    ws.addRow([]);
+    const t = ws.addRow(['TOTAL', '', '', '', r.screechTotalCents / 100]);
+    t.font = { name: 'Arial', size: 10, bold: true };
+    t.getCell(5).numFmt = MONEY;
+    if (r.warnings.length) {
+      ws.addRow([]);
+      for (const w of r.warnings) ws.addRow([w]).font = { name: 'Arial', size: 10, italic: true };
+    }
+    return Buffer.from(await wb.xlsx.writeBuffer());
+  }
+
   title(`${meta.locationName} — ${meta.showType}`);
   label('Show', meta.showName);
   label('Date', meta.eventDate);
@@ -48,7 +99,11 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
     label('Service requested as per contract', meta.contractService);
   }
   if (meta.guestAttendance != null) label('Guest attendance', meta.guestAttendance);
+  if (meta.sageRef) label('Sage ref', meta.sageRef);
   label('Total Tips Collected', r.totalCents / 100, MONEY);
+  if (r.lateSplitCents > 0) {
+    label('  of which late tips, re-split', r.lateSplitCents / 100, MONEY);
+  }
   ws.addRow([]);
 
   label('Logic for calculation of Tips', meta.formula);
@@ -64,13 +119,6 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   label('Staff rate per hour', r.staffRatePerHour, '#,##0.000000');
   ws.addRow([]);
 
-  const header = (cols: string[]) => {
-    const row = ws.addRow(cols);
-    row.font = { name: 'Arial', size: 10, bold: true };
-    row.alignment = { horizontal: 'center' };
-    row.getCell(1).alignment = { horizontal: 'left' };
-    return row;
-  };
 
   // ---- Cast (public shows only) ----
   if (meta.hasCast) {
@@ -151,6 +199,39 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   grand.font = { name: 'Arial', size: 10, bold: true };
   grand.getCell(2).numFmt = HOURS;
   grand.getCell(5).numFmt = MONEY;
+
+  // ---- Late tips, then screech-in, then each person's whole night ----
+  if (r.lateSplitCents > 0 || r.latePersonal.length) {
+    ws.addRow([]);
+    title('Late tips');
+    if (r.lateSplitCents > 0) {
+      label('Re-split with the show (included above)', r.lateSplitCents / 100, MONEY);
+    }
+    for (const t of r.latePersonal) {
+      const row = ws.addRow([t.name, '', t.sageRef ? `Sage ${t.sageRef}` : '',
+        t.description, t.amountCents / 100]);
+      row.font = { name: 'Arial', size: 10 };
+      row.getCell(5).numFmt = MONEY;
+    }
+  }
+  if (r.screech.length) {
+    ws.addRow([]);
+    title('Screech - IN');
+    screechBlock();
+  }
+  const extra = r.personTotals.filter((p) => p.screechCents || p.lateCents);
+  if (extra.length) {
+    ws.addRow([]);
+    for (const p of extra) {
+      const row = ws.addRow([`Total for ${p.name}`, '', '', '', p.totalCents / 100]);
+      row.font = { name: 'Arial', size: 10, bold: true };
+      row.getCell(5).numFmt = MONEY;
+    }
+    ws.addRow([]);
+    const g = label('Paid out tonight (show + screech-in + late tips)',
+      r.grandTotalCents / 100, MONEY);
+    g.font = { name: 'Arial', size: 10, bold: true };
+  }
 
   if (r.warnings.length) {
     ws.addRow([]);

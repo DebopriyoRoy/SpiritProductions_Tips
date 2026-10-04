@@ -70,6 +70,47 @@ export const DEFAULT_RULES: RuleSet = {
   oddCentTo: 'staff',
 };
 
+/**
+ * One screech-in ceremony. A night can hold several (Sep 8 had two), each
+ * its own small pool, split equally between the host and any helpers. It is
+ * never part of the show's cast/staff split. See docs/SCREECH_IN_PROPOSAL.md.
+ */
+export interface ScreechHost {
+  id: string;
+  name: string;
+  /** A label only: helpers take the same equal share as the host. */
+  helper: boolean;
+}
+
+export interface ScreechSession {
+  id: string;
+  /** Mostly cash; Square when a guest tips while booking online. */
+  cashCents: Cents;
+  squareCents: Cents;
+  guests: number | null;
+  /** The Sage journal number this was posted under, e.g. J6924. */
+  sageRef: string;
+  hosts: ScreechHost[];
+}
+
+/**
+ * Tip money for a show that arrives after the night was split — e.g. a
+ * customer paying on account a few days later. Whoever enters it decides:
+ * 'split' adds it to the show's total and re-splits the night by the normal
+ * rules; 'person' pays it straight to one named person.
+ */
+export type LateTipMode = 'split' | 'person';
+
+export interface LateTip {
+  id: string;
+  amountCents: Cents;
+  mode: LateTipMode;
+  /** Who it is paid to, when mode is 'person'. */
+  payee: string;
+  description: string;
+  sageRef: string;
+}
+
 export interface EventInput {
   gratuityCents: Cents;
   cashTipsCents: Cents;
@@ -79,6 +120,31 @@ export interface EventInput {
   cast: CastEntry[];
   staff: StaffEntry[];
   rules: RuleSet;
+  screech?: ScreechSession[];
+  lateTips?: LateTip[];
+}
+
+export interface ScreechHostPayout extends ScreechHost {
+  amountCents: Cents;
+}
+
+export interface ScreechResult {
+  id: string;
+  tipsCents: Cents;
+  guests: number | null;
+  sageRef: string;
+  hosts: ScreechHostPayout[];
+  /** Tips entered with nobody named to receive them. Held, never paid. */
+  unallocatedCents: Cents;
+}
+
+/** One person's whole night: show pay, screech-in and late tips together. */
+export interface PersonTotal {
+  name: string;
+  showCents: Cents;
+  screechCents: Cents;
+  lateCents: Cents;
+  totalCents: Cents;
 }
 
 export interface Payout {
@@ -136,6 +202,26 @@ export interface Result {
   /** What naive per-row rounding would have paid, and the resulting error. */
   naiveRoundedTotalCents: Cents;
   roundingDriftCents: Cents;
+  /** What was collected on the night, before any late tip was added. */
+  nightTipsCents: Cents;
+  /** Late tips folded into totalCents and re-split with the show. */
+  lateSplitCents: Cents;
+  /** Late tips paid straight to one person, outside the show's split. */
+  latePersonal: { id: string; name: string; amountCents: Cents;
+    description: string; sageRef: string }[];
+  latePersonalCents: Cents;
+  /** Late tips marked 'person' with nobody named. Held, never paid. */
+  lateUnassignedCents: Cents;
+  screech: ScreechResult[];
+  screechTotalCents: Cents;
+  /**
+   * Everyone paid anything tonight, with show, screech-in and late tips
+   * side by side. Only people with screech-in or late money have a total
+   * different from their show pay — the sheet's "Total for <name>" lines.
+   */
+  personTotals: PersonTotal[];
+  /** Show total + screech-in + late tips paid to a person. */
+  grandTotalCents: Cents;
   warnings: string[];
 }
 
@@ -224,13 +310,21 @@ export function calculate(input: EventInput): Result {
 
   const componentTotal =
     input.gratuityCents + input.cashTipsCents + input.squareTipsCents;
-  const totalCents =
+  const nightTipsCents =
     input.totalOverrideCents != null ? input.totalOverrideCents : componentTotal;
+
+  // A late tip the user chose to re-split simply joins the show's total, so
+  // every rule — the cast/staff split, office block, pins — applies to it.
+  const lateTips = input.lateTips ?? [];
+  const lateSplitCents = lateTips
+    .filter((t) => t.mode === 'split')
+    .reduce((a, t) => a + t.amountCents, 0);
+  const totalCents = nightTipsCents + lateSplitCents;
 
   if (input.totalOverrideCents != null && componentTotal > 0 &&
       componentTotal !== input.totalOverrideCents) {
     warnings.push(
-      `Total override (${totalCents / 100}) does not match the sum of gratuity, ` +
+      `Total override (${nightTipsCents / 100}) does not match the sum of gratuity, ` +
       `cash and Square tips (${componentTotal / 100}).`,
     );
   }
@@ -446,8 +540,84 @@ export function calculate(input: EventInput): Result {
       0,
     );
 
+  // ---- Late tips paid to one person ----
+  const latePersonal = lateTips
+    .filter((t) => t.mode === 'person' && t.payee.trim() !== '')
+    .map((t) => ({
+      id: t.id, name: t.payee.trim(), amountCents: t.amountCents,
+      description: t.description, sageRef: t.sageRef,
+    }));
+  const latePersonalCents = latePersonal.reduce((a, t) => a + t.amountCents, 0);
+  const lateUnassignedCents = lateTips
+    .filter((t) => t.mode === 'person' && t.payee.trim() === '')
+    .reduce((a, t) => a + t.amountCents, 0);
+  if (lateUnassignedCents > 0) {
+    warnings.push(
+      `A late tip of ${(lateUnassignedCents / 100).toFixed(2)} is set to go ` +
+      `to one person, but nobody is named, so it has not been paid.`,
+    );
+  }
+
+  // ---- Screech-in: each session its own pool, split equally ----
+  const screech: ScreechResult[] = (input.screech ?? []).map((s, n) => {
+    const tipsCents = s.cashCents + s.squareCents;
+    const named = s.hosts.filter((h) => h.name.trim() !== '');
+    const shares = allocateByWeight(tipsCents, named.map(() => 1));
+    const byId = new Map(named.map((h, i) => [h.id, shares[i]]));
+    const unallocated = named.length ? 0 : tipsCents;
+    if (unallocated > 0) {
+      warnings.push(
+        `Screech-In ${n + 1} has ${(tipsCents / 100).toFixed(2)} in tips but ` +
+        `no host, so it has not been paid. Add who hosted it.`,
+      );
+    }
+    return {
+      id: s.id, tipsCents, guests: s.guests, sageRef: s.sageRef,
+      hosts: s.hosts.map((h) => ({ ...h, amountCents: byId.get(h.id) ?? 0 })),
+      unallocatedCents: unallocated,
+    };
+  });
+  const screechTotalCents = screech.reduce((a, s) => a + s.tipsCents, 0);
+  for (const s of screech) {
+    const paid = s.hosts.reduce((a, h) => a + h.amountCents, 0);
+    if (paid + s.unallocatedCents !== s.tipsCents) {
+      throw new Error(`Screech-In allocation lost cents: ${paid} != ${s.tipsCents}`);
+    }
+  }
+
+  // ---- Everyone's whole night ----
+  // Matched on the name's words in any order, so "Noseworthy, Natalie" and
+  // "Natalie Noseworthy" — both spellings the workbook uses — meet.
+  const totals = new Map<string, PersonTotal>();
+  const person = (name: string) => {
+    const key = personKey(name);
+    let e = totals.get(key);
+    if (!e) {
+      e = { name, showCents: 0, screechCents: 0, lateCents: 0, totalCents: 0 };
+      totals.set(key, e);
+    }
+    return e;
+  };
+  for (const p of perPerson) person(p.name).showCents += p.amountCents;
+  for (const s of screech) {
+    for (const h of s.hosts) if (h.amountCents) person(h.name).screechCents += h.amountCents;
+  }
+  for (const t of latePersonal) person(t.name).lateCents += t.amountCents;
+  const personTotals = [...totals.values()]
+    .map((e) => ({ ...e, totalCents: e.showCents + e.screechCents + e.lateCents }))
+    .sort((a, b) => b.totalCents - a.totalCents);
+
   return {
     totalCents,
+    nightTipsCents,
+    lateSplitCents,
+    latePersonal,
+    latePersonalCents,
+    lateUnassignedCents,
+    screech,
+    screechTotalCents,
+    personTotals,
+    grandTotalCents: totalCents + screechTotalCents + latePersonalCents,
     overpaidCents,
     castPoolCents,
     staffPoolCents,
@@ -474,5 +644,9 @@ export function calculate(input: EventInput): Result {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const normalise = (s: string) =>
   s.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.,]/g, '');
+
+const personKey = (s: string) =>
+  s.toLowerCase().replace(/\(.*?\)/g, ' ').split(/[\s,.]+/)
+    .filter(Boolean).sort().join(' ');
 
 export { toCents };

@@ -89,7 +89,8 @@ export async function saveEventAction(fd: FormData) {
       `UPDATE event SET show_name=$1, guest_attendance=$2, gratuity_cents=$3,
          cash_cents=$4, square_cents=$5, total_override_cents=$6,
          cast_share_percent=$7, office_hours=$8, odd_cent_to=$9,
-         contract_service=$10, event_date=COALESCE($12, event_date)
+         contract_service=$10, event_date=COALESCE($12, event_date),
+         sage_ref=COALESCE($13, sage_ref)
        WHERE id=$11`,
       [
         String(fd.get('showName') ?? ''),
@@ -104,6 +105,7 @@ export async function saveEventAction(fd: FormData) {
         String(fd.get('contractService') ?? ''),
         eventId,
         String(fd.get('eventDate') ?? '').trim() || null,
+        fd.has('sageRef') ? String(fd.get('sageRef')).trim() : null,
       ],
     );
 
@@ -147,6 +149,62 @@ export async function saveEventAction(fd: FormData) {
       if (m) {
         await c.q('UPDATE staff_row SET pinned_cents=$1 WHERE id=$2 AND event_id=$3',
           [pinnedCents(value), m[1], eventId]);
+        continue;
+      }
+      // Screech-in sessions and late tips. Every write is scoped to this
+      // event, so a tampered id from another night changes nothing.
+      m = key.match(/^scr_(cash|square|guests|ref)_(.+)$/);
+      if (m) {
+        const [, field, id] = m;
+        const raw = String(value).trim();
+        const col = { cash: 'cash_cents', square: 'square_cents',
+          guests: 'guests', ref: 'sage_ref' }[field]!;
+        const v = field === 'ref' ? raw
+          : field === 'guests' ? (raw === '' ? null : Math.max(0, Math.round(num(raw))))
+          : Math.max(0, toCents(num(raw)));
+        await c.q(`UPDATE screech_session SET ${col}=$1 WHERE id=$2 AND event_id=$3`,
+          [v, id, eventId]);
+        continue;
+      }
+      m = key.match(/^scrh_name_(.+)$/);
+      if (m) {
+        const name = String(value).trim();
+        if (name) {
+          await c.q(
+            `UPDATE screech_host SET name=$1 WHERE id=$2 AND session_id IN
+               (SELECT id FROM screech_session WHERE event_id=$3)`,
+            [name, m[1], eventId]);
+        }
+        continue;
+      }
+      // A name typed in a session's "add host" box is added on any save, so
+      // pressing Calculate with it filled in does not quietly drop it.
+      m = key.match(/^scr_newhost_(.+)$/);
+      if (m) {
+        const name = String(value).trim();
+        const owned = name && (await c.q<{ id: string }>(
+          'SELECT id FROM screech_session WHERE id=$1 AND event_id=$2',
+          [m[1], eventId]))[0];
+        if (owned) {
+          await c.q(
+            `INSERT INTO screech_host (id,session_id,name,helper,sort)
+             VALUES ($1,$2,$3,$4,
+               (SELECT COUNT(*) FROM screech_host WHERE session_id=$2))`,
+            [uid(), m[1], name, fd.has(`scr_newhelper_${m[1]}`)]);
+        }
+        continue;
+      }
+      m = key.match(/^late_(amount|mode|payee|desc|ref)_(.+)$/);
+      if (m) {
+        const [, field, id] = m;
+        const raw = String(value).trim();
+        const col = { amount: 'amount_cents', mode: 'mode', payee: 'payee',
+          desc: 'description', ref: 'sage_ref' }[field]!;
+        const v = field === 'amount' ? Math.max(0, toCents(num(raw)))
+          : field === 'mode' ? (raw === 'person' ? 'person' : 'split')
+          : raw;
+        await c.q(`UPDATE late_tip SET ${col}=$1 WHERE id=$2 AND event_id=$3`,
+          [v, id, eventId]);
       }
     }
 
@@ -163,6 +221,16 @@ export async function saveEventAction(fd: FormData) {
     for (const { id } of staffIds) {
       await c.q('UPDATE staff_row SET included=$1 WHERE id=$2',
         [fd.has(`staff_incl_${id}`), id]);
+    }
+    // Only hosts whose name was on the form: a save from a page that did not
+    // render them must not clear their helper flag.
+    const hostIds = await c.q<{ id: string }>(
+      `SELECT h.id FROM screech_host h JOIN screech_session s ON s.id = h.session_id
+        WHERE s.event_id=$1`, [eventId]);
+    for (const { id } of hostIds) {
+      if (!fd.has(`scrh_name_${id}`)) continue;
+      await c.q('UPDATE screech_host SET helper=$1 WHERE id=$2',
+        [fd.has(`scrh_helper_${id}`), id]);
     }
   });
 
@@ -239,6 +307,56 @@ export async function deleteStaffAction(rowId: string, fd: FormData) {
   await assertScope(eventId, String(fd.get('locationId')));
   if (!rowId) throw new Error('No staff row given to remove');
   await q('DELETE FROM staff_row WHERE id=$1 AND event_id=$2', [rowId, eventId]);
+  revalidatePath(`/events/${eventId}`);
+}
+
+/* ---------------- Screech-in and late tips ----------------
+ *
+ * These buttons sit inside the event form and submit it, so each one saves
+ * the sheet first: adding a host must not throw away figures typed above.
+ */
+
+export async function addScreechSessionAction(fd: FormData) {
+  const eventId = String(fd.get('eventId'));
+  await saveEventAction(fd);
+  await q(
+    `INSERT INTO screech_session (id,event_id,sort)
+     VALUES ($1,$2,(SELECT COUNT(*) FROM screech_session WHERE event_id=$2))`,
+    [uid(), eventId]);
+  revalidatePath(`/events/${eventId}`);
+}
+
+export async function deleteScreechSessionAction(sessionId: string, fd: FormData) {
+  const eventId = String(fd.get('eventId'));
+  await saveEventAction(fd);
+  await q('DELETE FROM screech_session WHERE id=$1 AND event_id=$2', [sessionId, eventId]);
+  revalidatePath(`/events/${eventId}`);
+}
+
+export async function deleteScreechHostAction(hostId: string, fd: FormData) {
+  const eventId = String(fd.get('eventId'));
+  await saveEventAction(fd);
+  await q(
+    `DELETE FROM screech_host WHERE id=$1 AND session_id IN
+       (SELECT id FROM screech_session WHERE event_id=$2)`,
+    [hostId, eventId]);
+  revalidatePath(`/events/${eventId}`);
+}
+
+export async function addLateTipAction(fd: FormData) {
+  const eventId = String(fd.get('eventId'));
+  await saveEventAction(fd);
+  await q(
+    `INSERT INTO late_tip (id,event_id,sort)
+     VALUES ($1,$2,(SELECT COUNT(*) FROM late_tip WHERE event_id=$2))`,
+    [uid(), eventId]);
+  revalidatePath(`/events/${eventId}`);
+}
+
+export async function deleteLateTipAction(lateId: string, fd: FormData) {
+  const eventId = String(fd.get('eventId'));
+  await saveEventAction(fd);
+  await q('DELETE FROM late_tip WHERE id=$1 AND event_id=$2', [lateId, eventId]);
   revalidatePath(`/events/${eventId}`);
 }
 

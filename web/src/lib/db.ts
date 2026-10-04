@@ -229,8 +229,44 @@ CREATE TABLE IF NOT EXISTS event (
   office_hours         REAL NOT NULL DEFAULT 6,
   odd_cent_to          TEXT NOT NULL DEFAULT 'staff',
   status               TEXT NOT NULL DEFAULT 'draft',
+  -- The Sage journal number the show's tips were posted under.
+  sage_ref             TEXT NOT NULL DEFAULT '',
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (location_id, event_date, show_name)
+);
+
+-- One screech-in ceremony. A night can hold several, each split on its own
+-- between its hosts. Never part of the show's pool.
+CREATE TABLE IF NOT EXISTS screech_session (
+  id           TEXT PRIMARY KEY,
+  event_id     TEXT NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+  cash_cents   INTEGER NOT NULL DEFAULT 0,
+  square_cents INTEGER NOT NULL DEFAULT 0,
+  guests       INTEGER,
+  sage_ref     TEXT NOT NULL DEFAULT '',
+  sort         INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS screech_host (
+  id         TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES screech_session(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  -- A label only: a helper takes the same equal share as the host.
+  helper     BOOLEAN NOT NULL DEFAULT false,
+  sort       INTEGER NOT NULL DEFAULT 0
+);
+
+-- Tip money for a show that arrives after the night was split. mode 'split'
+-- re-splits it with the show; 'person' pays it to payee.
+CREATE TABLE IF NOT EXISTS late_tip (
+  id           TEXT PRIMARY KEY,
+  event_id     TEXT NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+  amount_cents INTEGER NOT NULL DEFAULT 0,
+  mode         TEXT NOT NULL DEFAULT 'split',
+  payee        TEXT NOT NULL DEFAULT '',
+  description  TEXT NOT NULL DEFAULT '',
+  sage_ref     TEXT NOT NULL DEFAULT '',
+  sort         INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS cast_row (
@@ -303,6 +339,9 @@ CREATE INDEX IF NOT EXISTS idx_cast_event ON cast_row(event_id);
 -- CONFLICT, so two simultaneous page loads cannot double-seed a show.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cast_event_name ON cast_row(event_id, name);
 CREATE INDEX IF NOT EXISTS idx_staff_event ON staff_row(event_id);
+CREATE INDEX IF NOT EXISTS idx_screech_event ON screech_session(event_id);
+CREATE INDEX IF NOT EXISTS idx_screech_host_session ON screech_host(session_id);
+CREATE INDEX IF NOT EXISTS idx_late_tip_event ON late_tip(event_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_timecard
   ON staff_row(event_id, square_timecard_id) WHERE square_timecard_id IS NOT NULL;
 
@@ -349,6 +388,7 @@ ALTER TABLE event
   ADD COLUMN IF NOT EXISTS office_hours         REAL NOT NULL DEFAULT 6,
   ADD COLUMN IF NOT EXISTS odd_cent_to          TEXT NOT NULL DEFAULT 'staff',
   ADD COLUMN IF NOT EXISTS status               TEXT NOT NULL DEFAULT 'draft',
+  ADD COLUMN IF NOT EXISTS sage_ref             TEXT NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS created_at           TIMESTAMPTZ NOT NULL DEFAULT now();
 
 ALTER TABLE cast_row
@@ -463,7 +503,18 @@ export interface EventRow {
   gratuity_cents: number; cash_cents: number; square_cents: number;
   total_override_cents: number | null;
   cast_share_percent: number; office_hours: number; odd_cent_to: string;
-  status: string; created_at: string;
+  status: string; sage_ref: string; created_at: string;
+}
+export interface ScreechSessionRow {
+  id: string; event_id: string; cash_cents: number; square_cents: number;
+  guests: number | null; sage_ref: string; sort: number;
+}
+export interface ScreechHostRow {
+  id: string; session_id: string; name: string; helper: boolean; sort: number;
+}
+export interface LateTipRow {
+  id: string; event_id: string; amount_cents: number; mode: string;
+  payee: string; description: string; sage_ref: string; sort: number;
 }
 export interface CastRow {
   id: string; event_id: string; name: string; ratio: number;
