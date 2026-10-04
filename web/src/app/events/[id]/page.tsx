@@ -412,13 +412,6 @@ export default async function EventPage({
                        type="number" min="0" placeholder="not recorded"
                        defaultValue={event.guest_attendance ?? ''} />
               </div>
-              {!screechOnly && (
-                <div>
-                  <label className="f" htmlFor="sageRef">Sage ref</label>
-                  <input id="sageRef" name="sageRef" type="text"
-                         placeholder="e.g. J7427" defaultValue={event.sage_ref ?? ''} />
-                </div>
-              )}
             </div>
             <div className="calcrow">
               <button className="btn big" type="submit">Calculate tips</button>
@@ -644,7 +637,7 @@ export default async function EventPage({
                     <thead>
                       <tr>
                         <th className="num">Amount</th><th>Goes to</th>
-                        <th>Paid to</th><th>Description</th><th>Sage ref</th><th></th>
+                        <th>Paid to</th><th>Description</th><th></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -679,11 +672,6 @@ export default async function EventPage({
                                    defaultValue={t.description}
                                    placeholder="e.g. payment from Lori Pynn"
                                    aria-label="Late tip description" />
-                          </td>
-                          <td style={{ width: 110 }}>
-                            <input name={`late_ref_${t.id}`} type="text"
-                                   defaultValue={t.sage_ref} placeholder="J7113"
-                                   aria-label="Late tip Sage ref" />
                           </td>
                           <td className="num">
                             <button className="btn ghost small" type="submit"
