@@ -742,11 +742,17 @@ export default async function EventPage({
                              defaultValue={row.guests ?? ''} />
                     </div>
                     <div>
-                      <label className="f" htmlFor={`scr_ref_${s.id}`}>Sage ref</label>
-                      <input id={`scr_ref_${s.id}`} name={`scr_ref_${s.id}`} type="text"
-                             placeholder="e.g. J6924" defaultValue={row.sage_ref} />
+                      <label className="f" htmlFor={`scr_total_${s.id}`}>
+                        Total tips (cash + Square)
+                      </label>
+                      {/* Shown, not saved: the pool is always cash + Square. */}
+                      <input id={`scr_total_${s.id}`} className="num" type="text"
+                             readOnly tabIndex={-1}
+                             defaultValue={(s.tipsCents / 100).toFixed(2)} />
                     </div>
                   </div>
+                  <TipsTotal partIds={[`scr_cash_${s.id}`, `scr_square_${s.id}`]}
+                             totalId={`scr_total_${s.id}`} />
                   <table style={{ marginTop: 10 }}>
                     <thead>
                       <tr>
