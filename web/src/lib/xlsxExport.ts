@@ -21,12 +21,71 @@ export interface ExportMeta {
   /** A night with only screech-in: written as the small screech-in sheet. */
   screechOnly?: boolean;
   sageRef?: string;
+  /** The tab name; the date's tab name when not given. */
+  sheetName?: string;
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'June', 'July', 'Aug', 'Sept',
+  'Oct', 'Nov', 'Dec'];
+
+/**
+ * The tab name the fortnightly tips workbook uses for a night, such as
+ * "Sept-08-2026", so a downloaded sheet can be dropped straight into it.
+ */
+export function sheetNameForDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-');
+  const month = MONTHS[Number(m) - 1];
+  return month && d && y ? `${month}-${d}-${y}` : 'Tips';
+}
+
+/**
+ * A night's tab name. ACC's tabs carry the venue, as the workbook names them
+ * ("ACC SEPT 12-26"), so the two venues' nights never collide.
+ */
+export function sheetNameFor(locationId: string, isoDate: string): string {
+  if (locationId !== 'acc') return sheetNameForDate(isoDate);
+  const [y, m, d] = isoDate.split('-');
+  const month = MONTHS[Number(m) - 1];
+  return month ? `ACC ${month.toUpperCase()} ${d}-${y.slice(2)}` : 'ACC';
+}
+
+/** One night's sheet as a file of its own. */
 export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Spirit Tips';
-  const ws = wb.addWorksheet(meta.showType.slice(0, 30) || 'Tips');
+  addNightSheet(wb, r, meta);
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+type Fill = Partial<ExcelJS.Color>;
+/** The shades the tips workbook marks its totals with. */
+const FILL = {
+  tipsCollected: { theme: 4, tint: 0.3998840296639912 },
+  castTotal: { argb: 'FF92D050' },
+  grandTotal: { theme: 3, tint: 0.7998901333658864 },
+  screech: { theme: 5, tint: 0.5998718222602009 },
+  personTotal: { theme: 9, tint: 0.7998901333658864 },
+  latePerson: { argb: 'FFFFFF00' },
+} as Record<string, Fill>;
+const SECTION_FILL: Record<Section, Fill> = {
+  BAR: { theme: 2, tint: -0.249977111117893 },
+  SERVICE: { theme: 9, tint: 0.5998718222602009 },
+  FIFTY_FIFTY: { theme: 3, tint: 0.5998718222602009 },
+  KITCHEN: { theme: 5, tint: 0.5998718222602009 },
+  OFFICE: { theme: 6, tint: 0.7998901333658864 },
+} as Record<Section, Fill>;
+
+function shade(row: ExcelJS.Row, fill: Fill, cols: number[]) {
+  for (const c of cols) {
+    row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: fill };
+  }
+}
+
+/** Adds one night's sheet, laid out as the tips workbook lays it out. */
+export function addNightSheet(
+  wb: ExcelJS.Workbook, r: Result, meta: ExportMeta,
+): ExcelJS.Worksheet {
+  const ws = wb.addWorksheet(meta.sheetName ?? sheetNameForDate(meta.eventDate));
 
   ws.columns = [
     { width: 40 }, { width: 12 }, { width: 10 }, { width: 10 }, { width: 14 },
@@ -52,17 +111,24 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
     return row;
   };
 
+  // The workbook shades each screech-in's heading, alternating two colours.
+  const SCREECH_FILLS: Partial<ExcelJS.Color>[] = [
+    { theme: 2, tint: -0.249977111117893 } as Partial<ExcelJS.Color>,
+    { theme: 3, tint: 0.5999938962981048 } as Partial<ExcelJS.Color>,
+  ];
+
   const screechBlock = () => {
-    // As the workbook lays it out: the tips collected on their own line,
-    // then each host and helper with what they receive.
+    // As the workbook lays it out: each screech-in's tips on its own shaded
+    // line, a gap, then each host and helper with what they receive.
     for (const [n, s] of r.screech.entries()) {
-      const head = ws.addRow([
-        r.screech.length > 1 ? `Screech-In ${n + 1}` : 'Tips collected',
-        s.guests != null ? `${s.guests} guests` : '',
-        s.sageRef ? `Sage ${s.sageRef}` : '', '', s.tipsCents / 100,
-      ]);
+      if (n > 0) ws.addRow([]);
+      const head = ws.addRow([`Screech-In ${n + 1}`, '', '', '', s.tipsCents / 100]);
       head.font = { name: 'Arial', size: 10, bold: true };
       head.getCell(5).numFmt = MONEY;
+      head.getCell(1).fill = {
+        type: 'pattern', pattern: 'solid', fgColor: SCREECH_FILLS[n % 2],
+      };
+      ws.addRow([]);
       for (const h of s.hosts) {
         const row = ws.addRow([h.helper ? `${h.name} (Helper)` : h.name, '', '', '',
           h.amountCents / 100]);
@@ -76,10 +142,13 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   };
 
   if (meta.screechOnly) {
+    ws.getColumn(4).width = 6.33;
+    ws.getColumn(5).width = 21.66;
     label('Event', 'Screech - IN').font = { name: 'Arial', size: 10, bold: true };
     label('Date', meta.eventDate);
     ws.addRow([]);
     header(['Person Name', '', '', '', 'Amount Receivable']);
+    ws.addRow([]);
     screechBlock();
     ws.addRow([]);
     const t = ws.addRow(['TOTAL', '', '', '', r.screechTotalCents / 100]);
@@ -89,7 +158,7 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
       ws.addRow([]);
       for (const w of r.warnings) ws.addRow([w]).font = { name: 'Arial', size: 10, italic: true };
     }
-    return Buffer.from(await wb.xlsx.writeBuffer());
+    return ws;
   }
 
   title(`${meta.locationName} — ${meta.showType}`);
@@ -100,7 +169,7 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   }
   if (meta.guestAttendance != null) label('Guest attendance', meta.guestAttendance);
   if (meta.sageRef) label('Sage ref', meta.sageRef);
-  label('Total Tips Collected', r.totalCents / 100, MONEY);
+  shade(label('Total Tips Collected', r.totalCents / 100, MONEY), FILL.tipsCollected, [1, 2]);
   if (r.lateSplitCents > 0) {
     label('  of which late tips, re-split', r.lateSplitCents / 100, MONEY);
   }
@@ -138,6 +207,7 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   const castTotal = ws.addRow(['Cast & Musicians Total', '', '', '', r.castPoolCents / 100]);
   castTotal.font = { name: 'Arial', size: 10, bold: true };
   castTotal.getCell(5).numFmt = MONEY;
+  shade(castTotal, FILL.castTotal, [1, 5]);
   ws.addRow([]);
   }
 
@@ -162,6 +232,7 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
     tr.font = { name: 'Arial', size: 10, bold: true };
     tr.getCell(2).numFmt = HOURS;
     tr.getCell(5).numFmt = MONEY;
+    shade(tr, SECTION_FILL[section], [1, 2, 5]);
     ws.addRow([]);
   }
 
@@ -199,6 +270,7 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   grand.font = { name: 'Arial', size: 10, bold: true };
   grand.getCell(2).numFmt = HOURS;
   grand.getCell(5).numFmt = MONEY;
+  shade(grand, FILL.grandTotal, [2, 5]);
 
   // ---- Late tips, then screech-in, then each person's whole night ----
   if (r.lateSplitCents > 0 || r.latePersonal.length) {
@@ -212,11 +284,12 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
         t.description, t.amountCents / 100]);
       row.font = { name: 'Arial', size: 10 };
       row.getCell(5).numFmt = MONEY;
+      shade(row, FILL.latePerson, [1, 5]);
     }
   }
   if (r.screech.length) {
     ws.addRow([]);
-    title('Screech - IN');
+    shade(title('Screech - IN'), FILL.screech, [1]);
     screechBlock();
   }
   const extra = r.personTotals.filter((p) => p.screechCents || p.lateCents);
@@ -226,6 +299,7 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
       const row = ws.addRow([`Total for ${p.name}`, '', '', '', p.totalCents / 100]);
       row.font = { name: 'Arial', size: 10, bold: true };
       row.getCell(5).numFmt = MONEY;
+      shade(row, FILL.personTotal, [1, 5]);
     }
     ws.addRow([]);
     const g = label('Paid out tonight (show + screech-in + late tips)',
@@ -242,7 +316,7 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   }
 
   ws.views = [{ state: 'frozen', ySplit: 1 }];
-  return Buffer.from(await wb.xlsx.writeBuffer());
+  return ws;
 }
 
 export { fmt };

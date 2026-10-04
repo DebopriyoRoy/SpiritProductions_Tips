@@ -6,7 +6,11 @@ import {
 import {
   calculate, EventInput, Result, Section, CastEntry, StaffEntry, LateTipMode,
 } from './tips';
-import { getLocation, getShowTypeForLocation, CAST } from './config';
+import {
+  getLocation, getShowTypeForLocation, CAST, showTypesFor, SECTIONS,
+} from './config';
+import { ExportMeta, sheetNameFor } from './xlsxExport';
+import type { PayoutRoster } from './payoutSheet';
 import { getProvider } from './square';
 import { sectionForWageTitle, isNonTipped, hoursFromTimecard } from './mapping';
 
@@ -97,7 +101,100 @@ async function ensureCastRows(
   return true;
 }
 
+/** The show type a venue records its screech-in nights under. */
+export const SCREECH_TYPE_ID = 'screech-in';
+
+/**
+ * Whether this venue keeps screech-ins as nights of their own, listed beside
+ * the shows, rather than on each show's page.
+ */
+export function screechSeparate(locationId: string): boolean {
+  return !!getLocation(locationId)?.showTypeIds.includes(SCREECH_TYPE_ID);
+}
+
+/**
+ * The show a date's screech-ins are merged into: the first show entered for
+ * that date. Only one, so a screech-in is never paid on two sheets.
+ */
+export async function showForDate(
+  locationId: string, eventDate: string,
+): Promise<EventRow | undefined> {
+  const row = await one<EventRow>(
+    `SELECT * FROM event WHERE location_id = $1 AND event_date = $2
+        AND show_type_id <> $3
+      ORDER BY created_at, id LIMIT 1`,
+    [locationId, eventDate, SCREECH_TYPE_ID]);
+  return row ? { ...row, event_date: isoDate(row.event_date) } : undefined;
+}
+
+/**
+ * The screech-in night for a date, created if there is none yet. A night
+ * holds every screech-in of that date as its sessions.
+ */
+export async function screechNightFor(
+  locationId: string, eventDate: string,
+): Promise<{ id: string; created: boolean }> {
+  const find = () => one<{ id: string }>(
+    `SELECT id FROM event WHERE location_id = $1 AND event_date = $2
+        AND show_type_id = $3 ORDER BY created_at, id LIMIT 1`,
+    [locationId, eventDate, SCREECH_TYPE_ID]);
+  await ensureSchema();
+  const found = await find();
+  if (found) return { id: found.id, created: false };
+  try {
+    const id = await createEvent({
+      locationId, showTypeId: SCREECH_TYPE_ID, eventDate,
+      showName: 'Screech-In', guestAttendance: null,
+    });
+    return { id, created: true };
+  } catch (err) {
+    // Two people adding the same date at once: the other insert won.
+    const again = await find();
+    if (again) return { id: again.id, created: false };
+    throw err;
+  }
+}
+
+const adopted = new Set<string>();
+
+/**
+ * Screech-ins entered on a show's own page, before they had a list of their
+ * own, are moved onto that date's screech-in night. Nothing about them
+ * changes, and the show still gets them back through the merge.
+ */
+export async function adoptStrayScreech(locationId: string): Promise<void> {
+  if (adopted.has(locationId) || !screechSeparate(locationId)) return;
+  await ensureSchema();
+  const strays = await q<{ id: string; event_date: string }>(
+    `SELECT DISTINCT e.id, e.event_date FROM screech_session s
+       JOIN event e ON e.id = s.event_id
+      WHERE e.location_id = $1 AND e.show_type_id <> $2`,
+    [locationId, SCREECH_TYPE_ID]);
+  for (const e of strays) {
+    const night = await screechNightFor(locationId, isoDate(e.event_date));
+    await q(
+      `UPDATE screech_session
+          SET event_id = $1,
+              sort = sort + (SELECT COUNT(*) FROM screech_session WHERE event_id = $1)
+        WHERE event_id = $2`,
+      [night.id, e.id]);
+  }
+  adopted.add(locationId);
+}
+
+async function screechFor(eventIds: string[]) {
+  if (!eventIds.length) return { sessions: [], hosts: [] };
+  const sessions = await q<ScreechSessionRow>(
+    `SELECT s.* FROM screech_session s JOIN event e ON e.id = s.event_id
+      WHERE s.event_id = ANY($1) ORDER BY e.created_at, s.sort, s.id`, [eventIds]);
+  const hosts = await q<ScreechHostRow>(
+    `SELECT h.* FROM screech_host h JOIN screech_session s ON s.id = h.session_id
+      WHERE s.event_id = ANY($1) ORDER BY h.sort, h.id`, [eventIds]);
+  return { sessions, hosts };
+}
+
 export async function loadEvent(eventId: string, locationId: string) {
+  await adoptStrayScreech(locationId);
   const event = await eventForLocation(eventId, locationId);
   if (!event) return null;
   let cast = await q<CastRow>(
@@ -109,14 +206,37 @@ export async function loadEvent(eventId: string, locationId: string) {
   }
   const staff = await q<StaffRowDb>(
     'SELECT * FROM staff_row WHERE event_id = $1 ORDER BY section, sort', [eventId]);
-  const sessions = await q<ScreechSessionRow>(
-    'SELECT * FROM screech_session WHERE event_id = $1 ORDER BY sort, id', [eventId]);
-  const hosts = await q<ScreechHostRow>(
-    `SELECT h.* FROM screech_host h JOIN screech_session s ON s.id = h.session_id
-      WHERE s.event_id = $1 ORDER BY h.sort, h.id`, [eventId]);
+
+  // Where screech-ins are nights of their own, a show carries the screech-ins
+  // of its date (if it is the show they merge into), and a screech-in night
+  // knows which show it merges into.
+  let screechEventIds = [eventId];
+  let mergedInto: EventRow | undefined;
+  let mergedFrom: string[] = [];
+  if (screechSeparate(locationId)) {
+    const target = await showForDate(locationId, event.event_date);
+    if (event.show_type_id === SCREECH_TYPE_ID) {
+      mergedInto = target;
+    } else {
+      mergedFrom = target?.id === eventId
+        ? (await q<{ id: string }>(
+            `SELECT id FROM event WHERE location_id = $1 AND event_date = $2
+                AND show_type_id = $3 ORDER BY created_at, id`,
+            [locationId, event.event_date, SCREECH_TYPE_ID])).map((r) => r.id)
+        : [];
+      screechEventIds = mergedFrom;
+    }
+  }
+  const { sessions, hosts } = await screechFor(screechEventIds);
   const lateTips = await q<LateTipRow>(
     'SELECT * FROM late_tip WHERE event_id = $1 ORDER BY sort, id', [eventId]);
-  return { event, cast, staff, extras: { sessions, hosts, lateTips } };
+  return {
+    event, cast, staff, extras: { sessions, hosts, lateTips },
+    /** Screech-in night only: the show whose Excel it is merged into. */
+    mergedInto,
+    /** Show only: the screech-in nights merged into it. */
+    mergedFrom,
+  };
 }
 
 export interface EventExtras {
@@ -186,6 +306,81 @@ export async function computeEvent(
   if (!loaded) return null;
   return calculate(
     toEngineInput(loaded.event, loaded.cast, loaded.staff, loaded.extras));
+}
+
+type Loaded = NonNullable<Awaited<ReturnType<typeof loadEvent>>>;
+
+/** How a loaded night is described on its sheet. */
+export function exportMetaFor(loaded: Loaded, locationId: string): ExportMeta {
+  const loc = getLocation(locationId)!;
+  const e = loaded.event;
+  const show = getShowTypeForLocation(e.show_type_id, e.location_id);
+  return {
+    locationName: loc.name,
+    showType: e.show_type,
+    showName: e.show_name,
+    eventDate: e.event_date,
+    guestAttendance: e.guest_attendance,
+    contractService: e.contract_service,
+    hasCast: show.hasCast,
+    sections: show.sections,
+    formula: show.formula,
+    screechOnly: show.screechOnly,
+    sageRef: e.sage_ref,
+    sheetName: sheetNameFor(locationId, e.event_date),
+  };
+}
+
+/**
+ * Every night between two dates, ready for the workbook: one entry per sheet.
+ * A screech-in merged into a show is part of that show's sheet, and a night
+ * with nothing paid out is left out. Two shows on one date get "(2)".
+ */
+export async function nightsBetween(locationId: string, from: string, to: string) {
+  await adoptStrayScreech(locationId);
+  await ensureSchema();
+  const events = await q<{ id: string }>(
+    `SELECT id FROM event WHERE location_id = $1 AND event_date BETWEEN $2 AND $3
+      ORDER BY event_date, created_at, id`, [locationId, from, to]);
+  const nights: { result: Result; meta: ExportMeta }[] = [];
+  const used = new Map<string, number>();
+  for (const { id } of events) {
+    const loaded = await loadEvent(id, locationId);
+    if (!loaded || loaded.mergedInto) continue;
+    const result = calculate(
+      toEngineInput(loaded.event, loaded.cast, loaded.staff, loaded.extras));
+    if (!result.grandTotalCents) continue;
+    const meta = exportMetaFor(loaded, locationId);
+    const n = (used.get(meta.sheetName!) ?? 0) + 1;
+    used.set(meta.sheetName!, n);
+    if (n > 1) meta.sheetName = `${meta.sheetName} (${n})`;
+    nights.push({ result, meta });
+  }
+  return nights;
+}
+
+/** Everyone a venue's rosters list, block by block, for its payout sheet. */
+export function payoutRosterFor(locationId: string): PayoutRoster {
+  const loc = getLocation(locationId)!;
+  const types = showTypesFor(loc).map((t) => getShowTypeForLocation(t.id, loc.id));
+  const hasCast = types.some((t) => t.hasCast);
+  return {
+    cast: hasCast
+      ? CAST.map((raw) => {
+          const [name, tech] = raw.split('|');
+          return { name, technical: !!tech };
+        })
+      : [],
+    sections: SECTIONS
+      .filter((section) => types.some((t) => t.sections.includes(section)))
+      .map((section) => {
+        const names: string[] = [];
+        for (const t of types) {
+          for (const n of t.roster[section] ?? []) if (!names.includes(n)) names.push(n);
+        }
+        return { section, names };
+      }),
+  };
 }
 
 /**
