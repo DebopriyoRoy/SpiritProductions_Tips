@@ -1,8 +1,11 @@
 import {
   q, one, tx, uid, ensureSchema, isoDate,
   EventRow, CastRow, StaffRowDb, eventForLocation,
+  ScreechSessionRow, ScreechHostRow, LateTipRow,
 } from './db';
-import { calculate, EventInput, Result, Section, CastEntry, StaffEntry } from './tips';
+import {
+  calculate, EventInput, Result, Section, CastEntry, StaffEntry, LateTipMode,
+} from './tips';
 import { getLocation, getShowTypeForLocation, CAST } from './config';
 import { getProvider } from './square';
 import { sectionForWageTitle, isNonTipped, hoursFromTimecard } from './mapping';
@@ -106,7 +109,20 @@ export async function loadEvent(eventId: string, locationId: string) {
   }
   const staff = await q<StaffRowDb>(
     'SELECT * FROM staff_row WHERE event_id = $1 ORDER BY section, sort', [eventId]);
-  return { event, cast, staff };
+  const sessions = await q<ScreechSessionRow>(
+    'SELECT * FROM screech_session WHERE event_id = $1 ORDER BY sort, id', [eventId]);
+  const hosts = await q<ScreechHostRow>(
+    `SELECT h.* FROM screech_host h JOIN screech_session s ON s.id = h.session_id
+      WHERE s.event_id = $1 ORDER BY h.sort, h.id`, [eventId]);
+  const lateTips = await q<LateTipRow>(
+    'SELECT * FROM late_tip WHERE event_id = $1 ORDER BY sort, id', [eventId]);
+  return { event, cast, staff, extras: { sessions, hosts, lateTips } };
+}
+
+export interface EventExtras {
+  sessions: ScreechSessionRow[];
+  hosts: ScreechHostRow[];
+  lateTips: LateTipRow[];
 }
 
 /**
@@ -119,12 +135,24 @@ export async function loadEvent(eventId: string, locationId: string) {
  * narrowed still carries the wider numbers on its row.
  */
 export function toEngineInput(
-  event: EventRow, cast: CastRow[], staff: StaffRowDb[],
+  event: EventRow, cast: CastRow[], staff: StaffRowDb[], extras?: EventExtras,
 ): EventInput {
   const show = getShowTypeForLocation(event.show_type_id, event.location_id);
   const runs = new Set<Section>(show.sections);
 
   return {
+    screech: (extras?.sessions ?? []).map((s) => ({
+      id: s.id, cashCents: s.cash_cents, squareCents: s.square_cents,
+      guests: s.guests, sageRef: s.sage_ref,
+      hosts: extras!.hosts.filter((h) => h.session_id === s.id)
+        .map((h) => ({ id: h.id, name: h.name, helper: h.helper })),
+    })),
+    // A screech-in-only night has no show to re-split a late tip into.
+    lateTips: show.screechOnly ? [] : (extras?.lateTips ?? []).map((t) => ({
+      id: t.id, amountCents: t.amount_cents,
+      mode: (t.mode === 'person' ? 'person' : 'split') as LateTipMode,
+      payee: t.payee, description: t.description, sageRef: t.sage_ref,
+    })),
     gratuityCents: event.gratuity_cents,
     cashTipsCents: event.cash_cents,
     squareTipsCents: event.square_cents,
@@ -156,7 +184,8 @@ export async function computeEvent(
 ): Promise<Result | null> {
   const loaded = await loadEvent(eventId, locationId);
   if (!loaded) return null;
-  return calculate(toEngineInput(loaded.event, loaded.cast, loaded.staff));
+  return calculate(
+    toEngineInput(loaded.event, loaded.cast, loaded.staff, loaded.extras));
 }
 
 /**

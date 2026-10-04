@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import {
-  getLocation, LOCATIONS, SECTIONS, getShowTypeForLocation, CAST,
+  getLocation, LOCATIONS, SECTIONS, getShowTypeForLocation, CAST, everyone,
 } from '@/lib/config';
 import { loadEvent, toEngineInput } from '@/lib/service';
 import { calculate, SECTION_LABEL, Section } from '@/lib/tips';
@@ -14,6 +14,8 @@ import { requireUser, canSeeLocation, NotAuthenticated } from '@/lib/auth';
 import {
   saveEventAction, addStaffAction, deleteStaffAction, deleteCastAction,
   clearSelectionsAction, importTimecardAction,
+  addScreechSessionAction, deleteScreechSessionAction, deleteScreechHostAction,
+  addLateTipAction, deleteLateTipAction,
 } from '@/app/actions';
 import { TipsTotal } from '@/app/TipsTotal';
 import { ConfirmButton } from '@/app/ConfirmButton';
@@ -90,11 +92,14 @@ export default async function EventPage({
 
   const loaded = await loadEvent(id, loc.id);
   if (!loaded) notFound();
-  const { event, cast, staff } = loaded;
+  const { event, cast, staff, extras } = loaded;
   // Narrowed by venue: ACC runs no 50/50, no office and no cast, even on a
   // show type that does elsewhere.
   const show = getShowTypeForLocation(event.show_type_id, loc.id);
-  const r = calculate(toEngineInput(event, cast, staff));
+  const r = calculate(toEngineInput(event, cast, staff, extras));
+  const screechOnly = !!show.screechOnly;
+  // Only people whose night is more than their show pay get a "Total for" line.
+  const extraTotals = r.personTotals.filter((p) => p.screechCents || p.lateCents);
 
   const money = (c: number) => fmt(c);
   const staffBySection = (s: Section) => r.staff.filter((x) => x.section === s);
@@ -181,11 +186,25 @@ export default async function EventPage({
         ))}
         {r.warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}
 
+        {screechOnly ? (
+        <div className="figures stick">
+          <div className="fig">
+            <div className="k">Screech-In tips</div>
+            <div className="v">{money(r.screechTotalCents)}</div>
+            <div className="s">
+              {r.screech.length} screech-in{r.screech.length === 1 ? '' : 's'}
+            </div>
+          </div>
+        </div>
+        ) : (
         <div className="figures stick">
           <div className="fig">
             <div className="k">Total tips</div>
             <div className="v">{money(r.totalCents)}</div>
-            <div className="s">{show.label}</div>
+            <div className="s">
+              {show.label}
+              {r.lateSplitCents > 0 && ` · incl. ${money(r.lateSplitCents)} late`}
+            </div>
           </div>
           {show.hasCast ? (
             <div className="fig">
@@ -214,7 +233,19 @@ export default async function EventPage({
             <div className="v">{money(r.reconciliationCents)}</div>
             <div className="s">cast + staff &minus; total</div>
           </div>
+          {(r.screechTotalCents > 0 || r.latePersonalCents > 0) && (
+            <div className="fig">
+              <div className="k">Paid out tonight</div>
+              <div className="v">{money(r.grandTotalCents)}</div>
+              <div className="s">
+                show
+                {r.screechTotalCents > 0 && ` + ${money(r.screechTotalCents)} screech-in`}
+                {r.latePersonalCents > 0 && ` + ${money(r.latePersonalCents)} late`}
+              </div>
+            </div>
+          )}
         </div>
+        )}
 
         <div className="formula">
           <b>How this show type pays</b>
@@ -239,7 +270,7 @@ export default async function EventPage({
           </div>
         )}
 
-        <div className="panel toolbar">
+        {!screechOnly && <div className="panel toolbar">
           <form action={importTimecardAction} className="uploader">
             <input type="hidden" name="eventId" value={event.id} />
             <input type="hidden" name="locationId" value={loc.id} />
@@ -274,14 +305,15 @@ export default async function EventPage({
               Refresh selections
             </ConfirmButton>
           </form>
-        </div>
+        </div>}
 
         <form action={saveEventAction} id="event-form">
           <input type="hidden" name="eventId" value={event.id} />
           <input type="hidden" name="locationId" value={loc.id} />
 
           <div className="panel">
-            <h2>Tips collected</h2>
+            <h2>{screechOnly ? 'Night' : 'Tips collected'}</h2>
+            {!screechOnly && <>
             <div className="grid g4">
               <div>
                 <label className="f" htmlFor="gratuity">Gratuity</label>
@@ -313,7 +345,14 @@ export default async function EventPage({
             />
 
             <h3>Rules for this show</h3>
+            </>}
+            {screechOnly && <>
+              <input type="hidden" name="castSharePercent" value={event.cast_share_percent} />
+              <input type="hidden" name="officeHours" value={event.office_hours} />
+              <input type="hidden" name="oddCentTo" value={event.odd_cent_to} />
+            </>}
             <div className="grid g4">
+              {!screechOnly && <>
               <div>
                 <label className="f" htmlFor="castSharePercent">Cast share %</label>
                 <input id="castSharePercent" className="num" name="castSharePercent"
@@ -331,6 +370,7 @@ export default async function EventPage({
                   <option value="cast">Cast</option>
                 </select>
               </div>
+              </>}
               <div>
                 <label className="f" htmlFor="showName">Show name</label>
                 <input id="showName" name="showName" type="text"
@@ -347,6 +387,13 @@ export default async function EventPage({
                        type="number" min="0" placeholder="not recorded"
                        defaultValue={event.guest_attendance ?? ''} />
               </div>
+              {!screechOnly && (
+                <div>
+                  <label className="f" htmlFor="sageRef">Sage ref</label>
+                  <input id="sageRef" name="sageRef" type="text"
+                         placeholder="e.g. J7427" defaultValue={event.sage_ref ?? ''} />
+                </div>
+              )}
             </div>
             <div className="calcrow">
               <button className="btn big" type="submit">Calculate tips</button>
@@ -372,7 +419,7 @@ export default async function EventPage({
 
           </div>
 
-          {show.hasCast && <div className="panel">
+          {show.hasCast && !screechOnly && <div className="panel">
             <h2>Cast &amp; Musicians &mdash; paid per head</h2>
             <p className="sub">
               Hours are irrelevant here. Tick who worked &mdash; {r.castWorkedRatioTotal}{' '}
@@ -446,7 +493,7 @@ export default async function EventPage({
             </details>
           </div>}
 
-          <div className="panel">
+          {!screechOnly && <div className="panel">
             <h2>Staff — paid per hour</h2>
             <p className="sub">
               One rate across every section: {r.staffRatePerHour.toFixed(6)} per hour.
@@ -556,7 +603,189 @@ export default async function EventPage({
                 value: sec, label: SECTION_LABEL[sec],
               }))}
             />
+          </div>}
+
+          {!screechOnly && (
+            <div className="panel">
+              <h2>Late tips</h2>
+              <p className="sub">
+                Tips for this show that came in after the night was split, such
+                as a customer paying on account. For each one, choose whether it
+                is re-split with the show or paid to one person.
+              </p>
+              {extras.lateTips.length > 0 && (
+                <div className="tablewrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th className="num">Amount</th><th>Goes to</th>
+                        <th>Paid to</th><th>Description</th><th>Sage ref</th><th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {extras.lateTips.map((t) => (
+                        <tr key={t.id}>
+                          <td className="num" style={{ width: 120 }}>
+                            <input className="num" name={`late_amount_${t.id}`}
+                                   type="number" step="0.01" min="0"
+                                   defaultValue={(t.amount_cents / 100).toFixed(2)}
+                                   aria-label="Late tip amount" />
+                          </td>
+                          <td style={{ width: 210 }}>
+                            <select name={`late_mode_${t.id}`} defaultValue={t.mode}
+                                    aria-label="Where the late tip goes">
+                              <option value="split">Re-split with the show</option>
+                              <option value="person">One person</option>
+                            </select>
+                          </td>
+                          <td style={{ minWidth: 160 }}>
+                            <input name={`late_payee_${t.id}`} type="text"
+                                   list="everyone" defaultValue={t.payee}
+                                   placeholder={t.mode === 'person' ? 'who gets it' : 'only for one person'}
+                                   aria-label="Late tip paid to" />
+                          </td>
+                          <td style={{ minWidth: 200 }}>
+                            <input name={`late_desc_${t.id}`} type="text"
+                                   defaultValue={t.description}
+                                   placeholder="e.g. payment from Lori Pynn"
+                                   aria-label="Late tip description" />
+                          </td>
+                          <td style={{ width: 110 }}>
+                            <input name={`late_ref_${t.id}`} type="text"
+                                   defaultValue={t.sage_ref} placeholder="J7113"
+                                   aria-label="Late tip Sage ref" />
+                          </td>
+                          <td className="num">
+                            <button className="btn ghost small" type="submit"
+                                    formAction={deleteLateTipAction.bind(null, t.id)}
+                                    aria-label="Remove late tip">Remove</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="row-actions" style={{ marginTop: 12 }}>
+                <button className="btn ghost" type="submit" formAction={addLateTipAction}>
+                  Add a late tip
+                </button>
+                {r.lateSplitCents > 0 && (
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    {money(r.lateSplitCents)} re-split with the show, included in
+                    the total above.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="panel">
+            <h2>Screech-In</h2>
+            <p className="sub">
+              Each screech-in is its own pool, split equally between the host
+              and any helpers. It is not part of the show&rsquo;s tips. A night
+              can have more than one.
+            </p>
+            {r.screech.map((s, n) => {
+              const row = extras.sessions.find((x) => x.id === s.id)!;
+              return (
+                <div key={s.id} className="tablewrap" style={{ marginBottom: 18 }}>
+                  <h3>Screech-In {n + 1}</h3>
+                  <div className="grid g4">
+                    <div>
+                      <label className="f" htmlFor={`scr_cash_${s.id}`}>Cash tips</label>
+                      <input id={`scr_cash_${s.id}`} className="num" name={`scr_cash_${s.id}`}
+                             type="number" step="0.01" min="0"
+                             defaultValue={(row.cash_cents / 100).toFixed(2)} />
+                    </div>
+                    <div>
+                      <label className="f" htmlFor={`scr_square_${s.id}`}>Square tips</label>
+                      <input id={`scr_square_${s.id}`} className="num" name={`scr_square_${s.id}`}
+                             type="number" step="0.01" min="0"
+                             defaultValue={(row.square_cents / 100).toFixed(2)} />
+                    </div>
+                    <div>
+                      <label className="f" htmlFor={`scr_guests_${s.id}`}>Guests</label>
+                      <input id={`scr_guests_${s.id}`} className="num" name={`scr_guests_${s.id}`}
+                             type="number" min="0" placeholder="not recorded"
+                             defaultValue={row.guests ?? ''} />
+                    </div>
+                    <div>
+                      <label className="f" htmlFor={`scr_ref_${s.id}`}>Sage ref</label>
+                      <input id={`scr_ref_${s.id}`} name={`scr_ref_${s.id}`} type="text"
+                             placeholder="e.g. J6924" defaultValue={row.sage_ref} />
+                    </div>
+                  </div>
+                  <table style={{ marginTop: 10 }}>
+                    <thead>
+                      <tr>
+                        <th>Host</th><th className="num">Helper</th>
+                        <th className="num">Amount</th><th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {s.hosts.map((h) => (
+                        <tr key={h.id}>
+                          <td>
+                            <input name={`scrh_name_${h.id}`} type="text" list="everyone"
+                                   defaultValue={h.name} aria-label="Host name" />
+                          </td>
+                          <td className="num" style={{ width: 80 }}>
+                            <input type="checkbox" name={`scrh_helper_${h.id}`}
+                                   defaultChecked={h.helper}
+                                   aria-label={`${h.name} is a helper`} />
+                          </td>
+                          <td className="num" style={{ width: 120 }}>{money(h.amountCents)}</td>
+                          <td className="num">
+                            <button className="btn ghost small" type="submit"
+                                    formAction={deleteScreechHostAction.bind(null, h.id)}
+                                    aria-label={`Remove ${h.name}`}>Remove</button>
+                          </td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td>
+                          <input name={`scr_newhost_${s.id}`} type="text" list="everyone"
+                                 placeholder="Add a host or helper"
+                                 aria-label="New host name" />
+                        </td>
+                        <td className="num">
+                          <input type="checkbox" name={`scr_newhelper_${s.id}`}
+                                 aria-label="New host is a helper" />
+                        </td>
+                        <td></td>
+                        <td className="num">
+                          <button className="btn ghost small" type="submit">Add</button>
+                        </td>
+                      </tr>
+                      <tr className="total">
+                        <td>Tips collected</td><td></td>
+                        <td className="num">{money(s.tipsCents)}</td>
+                        <td className="num">
+                          <button className="btn ghost small" type="submit"
+                                  formAction={deleteScreechSessionAction.bind(null, s.id)}
+                                  aria-label={`Remove screech-in ${n + 1}`}>
+                            Remove screech-in
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })}
+            <div className="row-actions" style={{ marginTop: 12 }}>
+              <button className="btn ghost" type="submit" formAction={addScreechSessionAction}>
+                Add a screech-in
+              </button>
+              {screechOnly && <button className="btn" type="submit">Save</button>}
+            </div>
           </div>
+
+          <datalist id="everyone">
+            {everyone().map((n) => <option key={n} value={n} />)}
+          </datalist>
         </form>
 
         <form action={addStaffAction} id="add-staff">
@@ -565,6 +794,7 @@ export default async function EventPage({
         </form>
 
         <div className="panel">
+          {!screechOnly && <>
           <h2>Payout per person</h2>
           <p className="sub">
             Aggregated across sections — someone who worked two roles appears once.
@@ -601,6 +831,43 @@ export default async function EventPage({
               </tbody>
             </table>
           </div>
+          </>}
+          {extraTotals.length > 0 && (
+            <>
+              <h2 style={{ marginTop: screechOnly ? 0 : 24 }}>
+                {screechOnly ? 'Payout per person' : 'Total for each person'}
+              </h2>
+              {!screechOnly && (
+                <p className="sub">
+                  Show pay plus screech-in and late tips, for everyone who had either.
+                </p>
+              )}
+              <div className="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      {!screechOnly && <th className="num">Show</th>}
+                      <th className="num">Screech-In</th>
+                      {!screechOnly && <th className="num">Late tip</th>}
+                      <th className="num">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {extraTotals.map((p) => (
+                      <tr key={p.name}>
+                        <td>{p.name}</td>
+                        {!screechOnly && <td className="num">{money(p.showCents)}</td>}
+                        <td className="num">{money(p.screechCents)}</td>
+                        {!screechOnly && <td className="num">{money(p.lateCents)}</td>}
+                        <td className="num">{money(p.totalCents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
           <div style={{ marginTop: 14 }}>
             <a className="btn" href={`/api/events/${event.id}/export?location=${loc.id}`}>
               Download Excel

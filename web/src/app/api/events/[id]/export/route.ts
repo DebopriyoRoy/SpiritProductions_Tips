@@ -24,7 +24,7 @@ export async function GET(
 
   const show = getShowTypeForLocation(
     loaded.event.show_type_id, loaded.event.location_id);
-  const r = calculate(toEngineInput(loaded.event, loaded.cast, loaded.staff));
+  const r = calculate(toEngineInput(loaded.event, loaded.cast, loaded.staff, loaded.extras));
   const buf = await buildWorkbook(r, {
     locationName: loc.name,
     showType: loaded.event.show_type,
@@ -35,6 +35,8 @@ export async function GET(
     hasCast: show.hasCast,
     sections: show.sections,
     formula: show.formula,
+    screechOnly: show.screechOnly,
+    sageRef: loaded.event.sage_ref,
   });
 
   const safe = (loaded.event.show_name || 'show').replace(/[^a-z0-9]+/gi, '_');

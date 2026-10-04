@@ -87,6 +87,11 @@ export interface ShowType {
   sections: Section[];
   /** "SERVICE REQUESTED AS PER CONTRACT" — private shows only. */
   hasContractService: boolean;
+  /**
+   * A night with no show, only screech-in: no show pool, no cast, no staff
+   * sections. The sheet is just the screech-in sessions.
+   */
+  screechOnly?: boolean;
   roster: Partial<Record<Section, string[]>>;
 }
 
@@ -151,7 +156,36 @@ export const SHOW_TYPES: Record<string, ShowType> = {
     hasContractService: true,
     roster: { BAR: ACC_BARTENDERS, SERVICE: SERVERS, KITCHEN: KITCHEN },
   },
+
+  'screech-in': {
+    id: 'screech-in',
+    label: 'Screech-In only',
+    formula:
+      'Screech-In tips are split equally between the host and any helpers. ' +
+      'They are not part of any show pool.',
+    rules: { castSharePercent: 0, officeHours: 0, oddCentTo: 'staff' },
+    hasCast: false,
+    sections: [],
+    hasContractService: false,
+    screechOnly: true,
+    roster: {},
+  },
 };
+
+/**
+ * Everyone on any roster, for picking a screech-in host. Hosts come from
+ * anywhere — office, cast, bar — so the list is the whole company, and names
+ * are spelled as the rosters spell them so their show pay and screech-in meet
+ * on the "Total for" line.
+ */
+export function everyone(): string[] {
+  const out = new Set<string>();
+  for (const show of Object.values(SHOW_TYPES)) {
+    for (const names of Object.values(show.roster)) for (const n of names ?? []) out.add(n);
+  }
+  for (const c of CAST) out.add(c.split('|')[0]);
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
 
 export interface LocationConfig {
   id: string;
@@ -175,7 +209,7 @@ export const LOCATIONS: LocationConfig[] = [
     name: 'Spirit Theater',
     squareLocationId: process.env.SQUARE_LOCATION_SPIRIT ?? '',
     timezone: 'America/St_Johns',
-    showTypeIds: ['public', 'private-gower'],
+    showTypeIds: ['public', 'private-gower', 'screech-in'],
   },
   {
     id: 'acc',
