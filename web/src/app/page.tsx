@@ -60,15 +60,19 @@ export default async function Home({
   const rows = await Promise.all(events.map(async (e) => {
     try {
       const r = await computeEvent(e.id, loc.id);
+      // Screech-in and late tips paid to a person sit outside the show's
+      // pool, so the list counts the whole night, or a screech-in-only night
+      // would read as "no tips entered".
       return r
         ? {
             e,
-            totalCents: r.totalCents,
-            total: fmt(r.totalCents),
+            totalCents: r.grandTotalCents,
+            total: fmt(r.grandTotalCents),
             check: fmt(r.reconciliationCents),
             balanced: r.reconciliationCents === 0,
-            people: r.perPerson.length,
-            unallocated: r.unallocatedCents,
+            people: r.personTotals.length,
+            unallocated: r.unallocatedCents + r.lateUnassignedCents +
+              r.screech.reduce((a, x) => a + x.unallocatedCents, 0),
           }
         : null;
     } catch {
