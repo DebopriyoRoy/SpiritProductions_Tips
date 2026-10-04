@@ -23,10 +23,23 @@ export interface ExportMeta {
   sageRef?: string;
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'June', 'July', 'Aug', 'Sept',
+  'Oct', 'Nov', 'Dec'];
+
+/**
+ * The tab name the fortnightly tips workbook uses for a night, such as
+ * "Sept-08-2026", so a downloaded sheet can be dropped straight into it.
+ */
+export function sheetNameForDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-');
+  const month = MONTHS[Number(m) - 1];
+  return month && d && y ? `${month}-${d}-${y}` : 'Tips';
+}
+
 export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Spirit Tips';
-  const ws = wb.addWorksheet(meta.showType.slice(0, 30) || 'Tips');
+  const ws = wb.addWorksheet(sheetNameForDate(meta.eventDate));
 
   ws.columns = [
     { width: 40 }, { width: 12 }, { width: 10 }, { width: 10 }, { width: 14 },

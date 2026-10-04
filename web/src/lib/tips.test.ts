@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { calculate, DEFAULT_RULES, CastEntry, StaffEntry, Section } from './tips';
 import { allocateByWeight, splitPool, toCents, fmt } from './money';
+import { sheetNameForDate } from './xlsxExport';
 
 /** Forever Country, 28 Aug 2026 — the figures verified against the model workbook. */
 const CAST_NAMES = [
@@ -503,5 +504,12 @@ describe('pinning the only person who is eligible', () => {
     const r = run({ cast: cast.map((c) => ({ ...c, worked: false })) });
     expect(r.unallocatedCastCents).toBe(r.castPoolCents);
     expect(r.reconciliationCents).toBe(0);
+  });
+});
+
+describe('sheetNameForDate', () => {
+  it('names the tab as the fortnightly workbook does', () => {
+    expect(sheetNameForDate('2026-09-08')).toBe('Sept-08-2026');
+    expect(sheetNameForDate('2026-10-04')).toBe('Oct-04-2026');
   });
 });
