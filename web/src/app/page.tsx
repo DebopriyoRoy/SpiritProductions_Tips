@@ -139,6 +139,8 @@ export default async function Home({
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  // A pay period is a fortnight: today and the thirteen days before it.
+  const periodStart = new Date(Date.now() - 13 * 864e5).toISOString().slice(0, 10);
 
   return (
     <>
@@ -335,6 +337,39 @@ export default async function Home({
             </form>
           </div>
         )}
+
+        <div className="panel">
+          <h2>Tips workbook</h2>
+          <p className="sub">
+            One Excel file for a pay period: a sheet for every night with tips
+            (named by date, with that date&rsquo;s screech-ins included), then a
+            Total Payout sheet per venue with each person&rsquo;s pay night by night.
+          </p>
+          <form action="/api/workbook" method="get">
+            <div className="grid g3">
+              <div>
+                <label className="f" htmlFor="wbFrom">From</label>
+                <input id="wbFrom" type="date" name="from" required defaultValue={periodStart} />
+              </div>
+              <div>
+                <label className="f" htmlFor="wbTo">To</label>
+                <input id="wbTo" type="date" name="to" required defaultValue={today} />
+              </div>
+              <div>
+                <label className="f" htmlFor="wbScope">Venues</label>
+                <select id="wbScope" name="scope" defaultValue={allowed.length > 1 ? 'all' : loc.id}>
+                  {allowed.length > 1 && <option value="all">All venues</option>}
+                  {allowed.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name} only</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <button className="btn" type="submit">Download workbook</button>
+            </div>
+          </form>
+        </div>
 
         <div className="panel">
           <h2>Add a show night</h2>
