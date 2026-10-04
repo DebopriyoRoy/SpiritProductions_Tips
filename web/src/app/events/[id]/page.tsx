@@ -632,7 +632,12 @@ export default async function EventPage({
                                    aria-label="Late tip amount" />
                           </td>
                           <td style={{ width: 210 }}>
-                            <select name={`late_mode_${t.id}`} defaultValue={t.mode}
+                            {/* Keyed on the saved value: a select only reads
+                                defaultValue when it mounts, so without this the
+                                form reset after a save shows the old choice, and
+                                the next save writes it back. */}
+                            <select key={`${t.id}-${t.mode}`} name={`late_mode_${t.id}`}
+                                    defaultValue={t.mode}
                                     aria-label="Where the late tip goes">
                               <option value="split">Re-split with the show</option>
                               <option value="person">One person</option>
