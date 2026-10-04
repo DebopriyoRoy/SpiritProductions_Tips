@@ -65,17 +65,24 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
     return row;
   };
 
+  // The workbook shades each screech-in's heading, alternating two colours.
+  const SCREECH_FILLS: Partial<ExcelJS.Color>[] = [
+    { theme: 2, tint: -0.249977111117893 } as Partial<ExcelJS.Color>,
+    { theme: 3, tint: 0.5999938962981048 } as Partial<ExcelJS.Color>,
+  ];
+
   const screechBlock = () => {
-    // As the workbook lays it out: the tips collected on their own line,
-    // then each host and helper with what they receive.
+    // As the workbook lays it out: each screech-in's tips on its own shaded
+    // line, a gap, then each host and helper with what they receive.
     for (const [n, s] of r.screech.entries()) {
-      const head = ws.addRow([
-        r.screech.length > 1 ? `Screech-In ${n + 1}` : 'Tips collected',
-        s.guests != null ? `${s.guests} guests` : '',
-        s.sageRef ? `Sage ${s.sageRef}` : '', '', s.tipsCents / 100,
-      ]);
+      if (n > 0) ws.addRow([]);
+      const head = ws.addRow([`Screech-In ${n + 1}`, '', '', '', s.tipsCents / 100]);
       head.font = { name: 'Arial', size: 10, bold: true };
       head.getCell(5).numFmt = MONEY;
+      head.getCell(1).fill = {
+        type: 'pattern', pattern: 'solid', fgColor: SCREECH_FILLS[n % 2],
+      };
+      ws.addRow([]);
       for (const h of s.hosts) {
         const row = ws.addRow([h.helper ? `${h.name} (Helper)` : h.name, '', '', '',
           h.amountCents / 100]);
@@ -89,10 +96,13 @@ export async function buildWorkbook(r: Result, meta: ExportMeta): Promise<Buffer
   };
 
   if (meta.screechOnly) {
+    ws.getColumn(4).width = 6.33;
+    ws.getColumn(5).width = 21.66;
     label('Event', 'Screech - IN').font = { name: 'Arial', size: 10, bold: true };
     label('Date', meta.eventDate);
     ws.addRow([]);
     header(['Person Name', '', '', '', 'Amount Receivable']);
+    ws.addRow([]);
     screechBlock();
     ws.addRow([]);
     const t = ws.addRow(['TOTAL', '', '', '', r.screechTotalCents / 100]);
