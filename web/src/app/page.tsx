@@ -7,8 +7,12 @@ import {
   requireUser, canSeeLocation, visibleLocations, isAdmin, NotAuthenticated,
 } from '@/lib/auth';
 import { eventsForLocation } from '@/lib/db';
-import { computeEvent } from '@/lib/service';
-import { createEventAction, loadSampleAction, deleteEventAction } from './actions';
+import {
+  computeEvent, adoptStrayScreech, screechSeparate, SCREECH_TYPE_ID,
+} from '@/lib/service';
+import {
+  createEventAction, loadSampleAction, deleteEventAction, addScreechNightAction,
+} from './actions';
 import { ConfirmButton } from '@/app/ConfirmButton';
 import { LocationBar } from './LocationBar';
 import { fmt } from '@/lib/money';
@@ -54,7 +58,43 @@ export default async function Home({
   const loc = getLocation(locationId);
   if (!loc || !canSeeLocation(user, loc.id)) redirect(`/?location=${allowed[0].id}`);
 
-  const events = await eventsForLocation(loc.id);
+  await adoptStrayScreech(loc.id);
+  const separate = screechSeparate(loc.id);
+  const all = await eventsForLocation(loc.id);
+  // Screech-in nights get their own list; the shows list is shows only.
+  const events = separate
+    ? all.filter((e) => e.show_type_id !== SCREECH_TYPE_ID) : all;
+  const nights = separate
+    ? all.filter((e) => e.show_type_id === SCREECH_TYPE_ID) : [];
+
+  // The show a date's screech-ins merge into: the first one entered, the
+  // same rule showForDate applies.
+  const firstShowOn = new Map<string, (typeof events)[number]>();
+  const key = (e: (typeof events)[number]) =>
+    [new Date(e.created_at).getTime(), e.id] as const;
+  for (const e of events) {
+    const at = firstShowOn.get(e.event_date);
+    const [t, id] = key(e);
+    if (!at || t < key(at)[0] || (t === key(at)[0] && id < at.id)) {
+      firstShowOn.set(e.event_date, e);
+    }
+  }
+  const screechRows = await Promise.all(nights.map(async (e) => {
+    try {
+      const r = await computeEvent(e.id, loc.id);
+      return {
+        e,
+        sessions: r?.screech.length ?? 0,
+        hosts: [...new Set(r?.screech.flatMap((s) => s.hosts.map((h) => h.name)) ?? [])],
+        totalCents: r?.screechTotalCents ?? 0,
+        show: firstShowOn.get(e.event_date),
+        error: false,
+      };
+    } catch {
+      return { e, sessions: 0, hosts: [], totalCents: 0,
+               show: firstShowOn.get(e.event_date), error: true };
+    }
+  }));
 
   // Compute every row up front: JSX cannot await inside .map().
   const rows = await Promise.all(events.map(async (e) => {
@@ -205,6 +245,97 @@ export default async function Home({
           </div>
         )}
 
+        {separate && (
+          <div className="panel">
+            <h2>Screech-In</h2>
+            <p className="sub">
+              Screech-ins are kept apart from the shows. When a show ran on the
+              same date, its Excel includes that date&rsquo;s screech-ins;
+              otherwise the screech-in gets an Excel of its own.
+            </p>
+            {screechRows.length > 0 && (
+              <div className="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Hosts</th>
+                      <th className="num">Screech-ins</th>
+                      <th className="num">Tips</th>
+                      <th>Excel</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {screechRows.map((s) => (
+                      <tr key={s.e.id}>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <Link href={`/events/${s.e.id}?location=${loc.id}`}
+                                style={{ fontWeight: 600, textDecoration: 'none' }}>
+                            {humanDate(s.e.event_date)}
+                          </Link>
+                        </td>
+                        <td>
+                          {s.hosts.length
+                            ? s.hosts.join(', ')
+                            : <span className="muted">no hosts yet</span>}
+                        </td>
+                        <td className="num">{s.sessions || '—'}</td>
+                        <td className="num">
+                          {s.error ? <span className="alert">needs attention</span>
+                                   : fmt(s.totalCents)}
+                        </td>
+                        <td>
+                          {s.show ? (
+                            <span>
+                              merged into{' '}
+                              <Link href={`/events/${s.show.id}?location=${loc.id}`}>
+                                {s.show.show_name || 'Untitled show'}
+                              </Link>
+                            </span>
+                          ) : (
+                            <span className="muted">own sheet, no show that date</span>
+                          )}
+                        </td>
+                        <td className="num" style={{ whiteSpace: 'nowrap' }}>
+                          <div className="row-actions" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                            <Link className="btn ghost small"
+                                  href={`/events/${s.e.id}?location=${loc.id}`}>
+                              Edit
+                            </Link>
+                            <form action={deleteEventAction} style={{ display: 'inline' }}>
+                              <input type="hidden" name="eventId" value={s.e.id} />
+                              <input type="hidden" name="locationId" value={loc.id} />
+                              <ConfirmButton message={
+                                `Delete the screech-in on ${humanDate(s.e.event_date)}?` +
+                                `\n\nThis removes every screech-in and host recorded ` +
+                                `for that date. It cannot be undone.`
+                              }>
+                                Delete
+                              </ConfirmButton>
+                            </form>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <form action={addScreechNightAction} style={{ marginTop: 14 }}>
+              <input type="hidden" name="locationId" value={loc.id} />
+              <div className="row-actions" style={{ alignItems: 'flex-end', gap: 10 }}>
+                <div>
+                  <label className="f" htmlFor="screechDate">Date</label>
+                  <input id="screechDate" type="date" name="eventDate" required
+                         defaultValue={today} />
+                </div>
+                <button className="btn" type="submit">Add a screech-in</button>
+              </div>
+            </form>
+          </div>
+        )}
+
         <div className="panel">
           <h2>Add a show night</h2>
           <form action={create}>
@@ -218,7 +349,9 @@ export default async function Home({
               <div>
                 <label className="f" htmlFor="showTypeId">Show type</label>
                 <select id="showTypeId" name="showTypeId">
-                  {showTypesFor(loc).map((s) => (
+                  {showTypesFor(loc)
+                    .filter((s) => !separate || s.id !== SCREECH_TYPE_ID)
+                    .map((s) => (
                     <option key={s.id} value={s.id}>{s.label}</option>
                   ))}
                 </select>

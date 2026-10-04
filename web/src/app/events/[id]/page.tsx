@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import {
   getLocation, LOCATIONS, SECTIONS, getShowTypeForLocation, CAST, everyone,
 } from '@/lib/config';
-import { loadEvent, toEngineInput } from '@/lib/service';
+import { loadEvent, toEngineInput, screechSeparate } from '@/lib/service';
 import { calculate, SECTION_LABEL, Section } from '@/lib/tips';
 import { fmt } from '@/lib/money';
 import { AddPerson } from './AddPerson';
@@ -92,12 +92,18 @@ export default async function EventPage({
 
   const loaded = await loadEvent(id, loc.id);
   if (!loaded) notFound();
-  const { event, cast, staff, extras } = loaded;
+  const { event, cast, staff, extras, mergedInto, mergedFrom } = loaded;
   // Narrowed by venue: ACC runs no 50/50, no office and no cast, even on a
   // show type that does elsewhere.
   const show = getShowTypeForLocation(event.show_type_id, loc.id);
   const r = calculate(toEngineInput(event, cast, staff, extras));
   const screechOnly = !!show.screechOnly;
+  // Where screech-ins are kept as nights of their own, a show's page does not
+  // edit them: it only says which are merged into its Excel.
+  const editScreech = screechOnly || !screechSeparate(loc.id);
+  const exportHref = mergedInto
+    ? `/api/events/${mergedInto.id}/export?location=${loc.id}`
+    : `/api/events/${event.id}/export?location=${loc.id}`;
   // Only people whose night is more than their show pay get a "Total for" line.
   const extraTotals = r.personTotals.filter((p) => p.screechCents || p.lateCents);
 
@@ -185,6 +191,25 @@ export default async function EventPage({
           </div>
         ))}
         {r.warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}
+
+        {mergedInto && (
+          <div className="note">
+            A show ran on this date, so these screech-ins are merged into the
+            Excel for{' '}
+            <Link href={`/events/${mergedInto.id}?location=${loc.id}`}>
+              {mergedInto.show_name || 'Untitled show'}
+            </Link>.
+          </div>
+        )}
+        {!screechOnly && mergedFrom.length > 0 && (
+          <div className="note">
+            The screech-in on this date ({money(r.screechTotalCents)}) is merged
+            into this show&rsquo;s Excel and the totals below.{' '}
+            <Link href={`/events/${mergedFrom[0]}?location=${loc.id}`}>
+              Edit the screech-in
+            </Link>
+          </div>
+        )}
 
         {screechOnly ? (
         <div className="figures stick">
@@ -685,7 +710,7 @@ export default async function EventPage({
             </div>
           )}
 
-          <div className="panel">
+          {editScreech && <div className="panel">
             <h2>Screech-In</h2>
             <p className="sub">
               Each screech-in is its own pool, split equally between the host
@@ -786,7 +811,7 @@ export default async function EventPage({
               </button>
               {screechOnly && <button className="btn" type="submit">Save</button>}
             </div>
-          </div>
+          </div>}
 
           <datalist id="everyone">
             {everyone().map((n) => <option key={n} value={n} />)}
@@ -874,8 +899,10 @@ export default async function EventPage({
             </>
           )}
           <div style={{ marginTop: 14 }}>
-            <a className="btn" href={`/api/events/${event.id}/export?location=${loc.id}`}>
-              Download Excel
+            <a className="btn" href={exportHref}>
+              {mergedInto
+                ? `Download Excel (with ${mergedInto.show_name || 'the show'})`
+                : 'Download Excel'}
             </a>
           </div>
         </div>

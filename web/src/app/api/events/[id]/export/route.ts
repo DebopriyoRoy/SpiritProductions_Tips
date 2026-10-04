@@ -21,6 +21,11 @@ export async function GET(
 
   const loaded = await loadEvent(id, loc.id);
   if (!loaded) return new Response('Not found for this location', { status: 404 });
+  // A screech-in on a date with a show is part of that show's sheet.
+  if (loaded.mergedInto) {
+    return Response.redirect(new URL(
+      `/api/events/${loaded.mergedInto.id}/export?location=${loc.id}`, req.url));
+  }
 
   const show = getShowTypeForLocation(
     loaded.event.show_type_id, loaded.event.location_id);

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { q, one, tx, uid, ensureSchema } from '@/lib/db';
-import { createEvent, syncFromSquare } from '@/lib/service';
+import { createEvent, syncFromSquare, screechNightFor } from '@/lib/service';
 import { toCents } from '@/lib/money';
 import {
   getLocation, NAME_ALIASES, CAST, getShowTypeForLocation, SECTIONS,
@@ -47,6 +47,26 @@ export async function createEventAction(fd: FormData) {
   });
   revalidatePath(`/?location=${locationId}`);
   return id;
+}
+
+/**
+ * Opens the screech-in night for a date, creating it with one empty
+ * screech-in ready to fill in. A date that already has one opens as it is.
+ */
+export async function addScreechNightAction(fd: FormData) {
+  const locationId = String(fd.get('locationId'));
+  await requireLocation(locationId);
+  const eventDate = String(fd.get('eventDate') ?? '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) throw new Error('Pick a date');
+  const night = await screechNightFor(locationId, eventDate);
+  const has = await one<{ id: string }>(
+    'SELECT id FROM screech_session WHERE event_id = $1 LIMIT 1', [night.id]);
+  if (!has) {
+    await q('INSERT INTO screech_session (id,event_id,sort) VALUES ($1,$2,0)',
+      [uid(), night.id]);
+  }
+  revalidatePath(`/?location=${locationId}`);
+  redirect(`/events/${night.id}?location=${locationId}`);
 }
 
 /**
