@@ -38,6 +38,17 @@ steps marked *(optional, terminal)* have in-app equivalents.
    |---|---|
    | `DATABASE_URL` | the pooled Neon string from step 1 |
    | `SETUP_SECRET` | a long random string you invent — used once, in step 4 |
+   | `SMTP_USER` | the Gmail address that sends sign-up and reset codes |
+   | `SMTP_PASS` | a 16-character Gmail **App Password** for that account, no spaces |
+   | `SMTP_FROM` | *(optional)* e.g. `Spirit Tips <info@spiritofnewfoundland.com>` |
+
+   Gmail rejects the normal account password. On the sending Google account,
+   turn on 2-Step Verification, then Google Account → Security → App
+   passwords, and generate one for Mail. Without `SMTP_USER`/`SMTP_PASS` the
+   site still runs, but **Register**, **Forgot password** and **Forgot user
+   ID** fail in production rather than printing codes to a log. To test the
+   credentials first: `npm run mail-test you@example.com` with them in
+   `.env.local`.
 
 5. Deploy. The schema creates itself on first request — `ensureSchema()` runs
    once per process behind a Postgres advisory lock, so concurrent instances
@@ -141,9 +152,10 @@ takes a second or two to wake.
   used to discover which addresses have accounts.
 - Changing someone's password, or deactivating them, signs them out everywhere
   immediately.
-- There is no self-service sign-up and no password-reset email. An admin sets
-  passwords on the People page. That suits a small team and removes a whole
-  class of account-takeover risk; it does mean an admin must be reachable.
+- **Register** verifies the email address with an emailed code and creates an
+  *inactive* manager with no venues; nobody gets in until an admin activates
+  them on the People page. **Forgot password** and **Forgot user ID** send
+  15-minute codes by email. Admins can still set passwords directly.
 
 ## Before real payouts
 
