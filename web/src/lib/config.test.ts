@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { SHOW_TYPES, NAME_ALIASES, CAST } from './config';
+import {
+  SHOW_TYPES, NAME_ALIASES, CAST, getShowTypeForLocation,
+} from './config';
 import { nameKey } from './timecardImport';
 
 describe('the rosters', () => {
@@ -121,5 +123,93 @@ describe('name aliases', () => {
     resolves('Penney, Linda', 'Penny Linda');
     resolves('Wall, Jordan', 'Wall James (Jordon)');
     resolves('Zavadetska, Marila', 'Zavadetska Mariia');
+  });
+});
+
+/**
+ * A show type says how the pool is split; the venue says who worked the room.
+ * A public show at ACC used to seed the Spirit bartenders, so an ACC-only
+ * bartender matched nobody on import and stayed at zero hours for the night.
+ */
+describe('a venue that staffs a section from its own team', () => {
+  const barAt = (showType: string, location: string) =>
+    getShowTypeForLocation(showType, location).roster.BAR ?? [];
+
+  it('gives a public show at ACC the ACC bartenders', () => {
+    expect(barAt('public', 'acc')).toContain('Pynn Montana');
+    expect(barAt('public', 'acc')).toContain('Harris John');
+  });
+
+  it('does not leave the Spirit-only bartenders on an ACC sheet', () => {
+    expect(barAt('public', 'acc')).not.toContain('Dickson Joleen');
+    expect(barAt('public', 'acc')).not.toContain('Gordon Daniel');
+  });
+
+  it('runs the ACC bar from one team whatever the show type', () => {
+    expect(barAt('private-acc', 'acc')).toEqual(barAt('public', 'acc'));
+  });
+
+  it('leaves the same show type at Spirit untouched', () => {
+    expect(barAt('public', 'spirit')).toEqual(SHOW_TYPES.public.roster.BAR);
+    expect(barAt('public', 'spirit')).not.toContain('Pynn Montana');
+  });
+
+  it('still takes the sections it does not override from the show type', () => {
+    const acc = getShowTypeForLocation('public', 'acc');
+    expect(acc.roster.SERVICE).toEqual(SHOW_TYPES.public.roster.SERVICE);
+    expect(acc.roster.KITCHEN).toEqual(SHOW_TYPES.public.roster.KITCHEN);
+  });
+
+  /**
+   * The ACC private show already names the ACC bartenders, so the venue
+   * override changes nothing there and must not rewrite what it describes.
+   */
+  it('leaves a show type the venue agrees with completely alone', () => {
+    expect(getShowTypeForLocation('private-acc', 'acc'))
+      .toEqual(SHOW_TYPES['private-acc']);
+  });
+
+  /** Narrowing still has to hold: ACC runs no 50/50, no office and no cast. */
+  it('keeps the venue narrowing it already did', () => {
+    const acc = getShowTypeForLocation('public', 'acc');
+    expect(acc.sections).toEqual(['BAR', 'SERVICE', 'KITCHEN']);
+    expect(acc.hasCast).toBe(false);
+    expect(acc.roster.FIFTY_FIFTY).toBeUndefined();
+    expect(acc.roster.OFFICE).toBeUndefined();
+  });
+});
+
+/**
+ * The 12 Sep 2026 ACC export put three bartenders on the night and only one
+ * of them reached the sheet: Square spells her surname Al-Lahut against the
+ * roster's AL-Lahout, and Pynn Montana was not on the roster a public show
+ * seeded at all. Both left real hours unpaid, so pin the whole file.
+ */
+describe("the 12 Sep 2026 ACC timecard", () => {
+  const SQUARE_NAMES = ['Al-Deir, Butros', 'Pynn, Montana', 'Al-Lahut, Svitlana'];
+
+  /** Resolves a name the way importTimecardAction does: roster, then aliases. */
+  const rosterIndex = (names: string[]) => {
+    const byKey = new Map(names.map((n) => [nameKey(n), n]));
+    for (const [canonical, others] of Object.entries(NAME_ALIASES)) {
+      if (!byKey.has(nameKey(canonical))) continue;
+      for (const other of others) {
+        if (!byKey.has(nameKey(other))) byKey.set(nameKey(other), canonical);
+      }
+    }
+    return byKey;
+  };
+
+  it('lands every bartender on the sheet', () => {
+    const bar = rosterIndex(getShowTypeForLocation('public', 'acc').roster.BAR ?? []);
+    const unmatched = SQUARE_NAMES.filter((n) => !bar.has(nameKey(n)));
+    expect(unmatched, `${unmatched.join(', ')} would import as zero hours`)
+      .toEqual([]);
+  });
+
+  it('reaches Svitlana through the alias, not a guess', () => {
+    expect(nameKey('Al-Lahut, Svitlana')).not.toBe(nameKey('AL-Lahout Svitlana'));
+    const aliases = NAME_ALIASES['AL-Lahout Svitlana'] ?? [];
+    expect(aliases.map(nameKey)).toContain(nameKey('Al-Lahut, Svitlana'));
   });
 });
