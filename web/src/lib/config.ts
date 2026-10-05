@@ -58,6 +58,10 @@ export const NAME_ALIASES: Record<string, string[]> = {
   // The roster carries his nickname in brackets, which the match strips;
   // Square files him under it as his given name, spelled Jordan.
   'Wall James (Jordon)': ['Wall Jordan'],
+  // Lahout on the roster, Lahut in Square — one o apart, one person. She is
+  // on both the bar and the service roster, and the shift's job title is what
+  // decides which of the two the hours land on.
+  'AL-Lahout Svitlana': ['Al-Lahut Svitlana'],
 };
 
 const OFFICE = [
@@ -200,6 +204,17 @@ export interface LocationConfig {
   sections?: Section[];
   /** Set false where the venue never pays a cast, whatever the show type. */
   hasCast?: boolean;
+  /**
+   * Sections this venue staffs from its own team rather than the show type's.
+   * A show type says how the pool is split; it does not say who works the
+   * room. The ACC bar is worked by ACC bartenders whether the night is a
+   * public show or a private one, so seeding the Spirit list there leaves the
+   * people who actually poured unmatched on import — and unpaid.
+   *
+   * Only the sections named here are replaced; the rest still come from the
+   * show type.
+   */
+  roster?: Partial<Record<Section, string[]>>;
 }
 
 /** Both venues sit under ONE Square merchant account — location is a filter. */
@@ -222,6 +237,10 @@ export const LOCATIONS: LocationConfig[] = [
     // type at Spirit, which is unaffected by this.
     sections: ['BAR', 'SERVICE', 'KITCHEN'],
     hasCast: false,
+    // The bar here is ACC's own team, not Spirit's. Before this, a public
+    // show at ACC seeded the Spirit bartenders, so an ACC-only bartender
+    // such as Pynn Montana matched nobody on import and was left at zero.
+    roster: { BAR: ACC_BARTENDERS },
   },
 ];
 
@@ -296,12 +315,24 @@ export function getShowTypeForLocation(
     : show.sections;
   const hasCast = loc.hasCast === false ? false : show.hasCast;
 
-  if (sections.length === show.sections.length && hasCast === show.hasCast) {
+  // A venue roster replaces the show type's for that section, so it has to be
+  // checked here too: ACC and Spirit run the same public show with different
+  // bartenders, and returning the show type unchanged would hand back Spirit's.
+  // Only a roster that actually differs counts, so a venue naming the team a
+  // show type already uses — the ACC private show — is left exactly as it was,
+  // down to its hand-written formula.
+  const overrides = sections.filter((s) => {
+    const venue = loc.roster?.[s];
+    return venue && venue.join('\u0000') !== (show.roster[s] ?? []).join('\u0000');
+  });
+
+  if (sections.length === show.sections.length && hasCast === show.hasCast
+      && overrides.length === 0) {
     return show;
   }
 
   const roster: Partial<Record<Section, string[]>> = {};
-  for (const s of sections) roster[s] = show.roster[s];
+  for (const s of sections) roster[s] = loc.roster?.[s] ?? show.roster[s];
 
   const rules: RuleSet = {
     ...show.rules,
