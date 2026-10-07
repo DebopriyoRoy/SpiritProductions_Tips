@@ -146,3 +146,33 @@ describe('late tips (Lori Pynn, Sage J7113)', () => {
     expect(r.warnings.some((w) => w.includes('nobody is named'))).toBe(true);
   });
 });
+
+/** The total can be typed in, as on a show, when the cash/Square split is not known. */
+describe('a screech-in total typed in by hand', () => {
+  it('splits the typed total rather than cash + Square', () => {
+    const s = { ...session('x', 0, [['Noseworthy, Natalie'], ['Small Andrew', true]]),
+      totalOverrideCents: toCents(80) };
+    const r = empty({ screech: [s] });
+    expect(r.screech[0].tipsCents).toBe(8000);
+    expect(r.screech[0].hosts.map((h) => h.amountCents)).toEqual([4000, 4000]);
+    expect(r.warnings).toEqual([]);
+  });
+
+  it('says so when the typed total disagrees with cash + Square', () => {
+    const s = { ...session('x', 25, [['Noseworthy, Natalie']], 75),
+      totalOverrideCents: toCents(90) };
+    const r = empty({ screech: [s] });
+    expect(r.screech[0].tipsCents).toBe(9000);
+    expect(r.warnings.join(' ')).toMatch(/does not match its cash and Square tips \(100\.00\)/);
+  });
+
+  it('takes the admin fee off the typed total', () => {
+    const s = { ...session('x', 0, [['Noseworthy, Natalie']]),
+      totalOverrideCents: toCents(100) };
+    const r = empty({
+      screech: [s],
+      rules: { castSharePercent: 0, officeHours: 0, oddCentTo: 'staff', adminFeePercent: 5 },
+    });
+    expect(r.screech[0].hosts[0].amountCents).toBe(9500);
+  });
+});

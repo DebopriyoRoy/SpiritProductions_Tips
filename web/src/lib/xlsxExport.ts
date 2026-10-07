@@ -135,6 +135,9 @@ export function addNightSheet(
         row.font = { name: 'Arial', size: 10 };
         row.getCell(5).numFmt = MONEY;
       }
+      if (s.adminFeeCents > 0) {
+        label(`Admin fee (${r.adminFeePercent}%)`, s.adminFeeCents / 100, MONEY);
+      }
       if (s.unallocatedCents > 0) {
         label('UNALLOCATED (no host)', s.unallocatedCents / 100, MONEY);
       }
@@ -152,6 +155,10 @@ export function addNightSheet(
     screechBlock();
     ws.addRow([]);
     const t = ws.addRow(['TOTAL', '', '', '', r.screechTotalCents / 100]);
+    if (r.screechAdminFeeCents > 0) {
+      label(`Admin fee (${r.adminFeePercent}%)`, r.screechAdminFeeCents / 100, MONEY);
+      label('Paid to hosts', (r.screechTotalCents - r.screechAdminFeeCents) / 100, MONEY);
+    }
     t.font = { name: 'Arial', size: 10, bold: true };
     t.getCell(5).numFmt = MONEY;
     if (r.warnings.length) {
@@ -172,6 +179,10 @@ export function addNightSheet(
   shade(label('Total Tips Collected', r.totalCents / 100, MONEY), FILL.tipsCollected, [1, 2]);
   if (r.lateSplitCents > 0) {
     label('  of which late tips, re-split', r.lateSplitCents / 100, MONEY);
+  }
+  if (r.adminFeeCents > 0) {
+    label(`Admin fee (${r.adminFeePercent}%)`, r.adminFeeCents / 100, MONEY);
+    label('Tips distributed', r.distributedCents / 100, MONEY);
   }
   ws.addRow([]);
 
@@ -244,6 +255,9 @@ export function addNightSheet(
   label('Staff total', r.staffPoolCents / 100, MONEY);
   if (r.unallocatedCents > 0) {
     label('UNALLOCATED (not paid out)', r.unallocatedCents / 100, MONEY);
+  }
+  if (r.adminFeeCents > 0) {
+    label(`Admin fee (${r.adminFeePercent}%)`, r.adminFeeCents / 100, MONEY);
   }
   label('Total tips collected', r.totalCents / 100, MONEY);
   const chk = label('CHECK (must be 0.00)', r.reconciliationCents / 100, '0.00');

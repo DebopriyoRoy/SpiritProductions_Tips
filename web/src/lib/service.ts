@@ -8,6 +8,7 @@ import {
 } from './tips';
 import {
   getLocation, getShowTypeForLocation, CAST, showTypesFor, SECTIONS,
+  withAdminFee,
 } from './config';
 import { ExportMeta, sheetNameFor } from './xlsxExport';
 import type { PayoutRoster } from './payoutSheet';
@@ -32,11 +33,12 @@ export async function createEvent(input: {
   await tx(async (c) => {
     await c.q(
       `INSERT INTO event (id, location_id, show_type, show_type_id, event_date,
-         show_name, guest_attendance, cast_share_percent, office_hours, odd_cent_to)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+         show_name, guest_attendance, cast_share_percent, office_hours, odd_cent_to,
+         admin_fee_percent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [id, input.locationId, show.label, show.id, input.eventDate, input.showName,
        input.guestAttendance, show.rules.castSharePercent, show.rules.officeHours,
-       show.rules.oddCentTo],
+       show.rules.oddCentTo, show.rules.adminFeePercent ?? 0],
     );
 
     // Private shows have no cast block at all.
@@ -263,6 +265,7 @@ export function toEngineInput(
   return {
     screech: (extras?.sessions ?? []).map((s) => ({
       id: s.id, cashCents: s.cash_cents, squareCents: s.square_cents,
+      totalOverrideCents: s.total_override_cents,
       guests: s.guests, sageRef: s.sage_ref,
       hosts: extras!.hosts.filter((h) => h.session_id === s.id)
         .map((h) => ({ id: h.id, name: h.name, helper: h.helper })),
@@ -295,6 +298,7 @@ export function toEngineInput(
       castSharePercent: show.hasCast ? event.cast_share_percent : 0,
       officeHours: runs.has('OFFICE') ? event.office_hours : 0,
       oddCentTo: event.odd_cent_to as 'cast' | 'staff',
+      adminFeePercent: event.admin_fee_percent,
     },
   };
 }
@@ -324,7 +328,7 @@ export function exportMetaFor(loaded: Loaded, locationId: string): ExportMeta {
     contractService: e.contract_service,
     hasCast: show.hasCast,
     sections: show.sections,
-    formula: show.formula,
+    formula: withAdminFee(show.formula, e.admin_fee_percent),
     screechOnly: show.screechOnly,
     sageRef: e.sage_ref,
     sheetName: sheetNameFor(locationId, e.event_date),

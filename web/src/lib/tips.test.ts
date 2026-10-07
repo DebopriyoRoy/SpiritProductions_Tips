@@ -513,3 +513,85 @@ describe('sheetNameForDate', () => {
     expect(sheetNameForDate('2026-10-04')).toBe('Oct-04-2026');
   });
 });
+
+/**
+ * From October 2026 a 5% admin fee comes off a show's total tips before the
+ * split, so cast and staff share the remaining 95%. Each screech-in pays the
+ * same 5% off its own tips. Late tips paid to one person stay whole.
+ */
+describe('the admin fee', () => {
+  const withFee = (over = {}) => run({
+    rules: { ...DEFAULT_RULES, adminFeePercent: 5 }, ...over,
+  });
+
+  it('takes 5% off the total before splitting the rest', () => {
+    const r = withFee({ totalOverrideCents: toCents(671.20) });
+    expect(r.totalCents).toBe(67120);
+    expect(r.adminFeeCents).toBe(3356);
+    expect(r.distributedCents).toBe(63764);
+    expect(r.castPoolCents + r.staffPoolCents).toBe(63764);
+  });
+
+  it('pays out exactly the 95% and still reconciles', () => {
+    const r = withFee();
+    const paid = r.cast.reduce((a, c) => a + c.amountCents, 0)
+      + r.staff.reduce((a, s) => a + s.amountCents, 0);
+    expect(r.adminFeeCents).toBe(Math.round(107253 * 0.05));
+    expect(paid + r.unallocatedCents).toBe(r.distributedCents);
+    expect(r.reconciliationCents).toBe(0);
+  });
+
+  it('charges the fee on late tips that are re-split with the show', () => {
+    const r = withFee({
+      totalOverrideCents: toCents(100),
+      lateTips: [{ id: 'l1', amountCents: toCents(100), mode: 'split',
+        payee: '', description: '', sageRef: '' }],
+    });
+    expect(r.adminFeeCents).toBe(1000);
+  });
+
+  it('takes 5% off each screech-in before its hosts share it', () => {
+    const r = withFee({
+      totalOverrideCents: toCents(100),
+      screech: [{ id: 'x', cashCents: toCents(50), squareCents: toCents(10.10),
+        guests: null, sageRef: '', hosts: [
+          { id: 'h1', name: 'Small Andrew', helper: false },
+          { id: 'h2', name: 'Pynn Jackie', helper: true },
+        ] }],
+    });
+    const [s] = r.screech;
+    expect(s.tipsCents).toBe(6010);
+    expect(s.adminFeeCents).toBe(301);
+    expect(s.distributedCents).toBe(5709);
+    expect(s.hosts.map((h) => h.amountCents).sort()).toEqual([2854, 2855]);
+    expect(r.screechAdminFeeCents).toBe(301);
+    // The show's fee is its own: screech-in money never joins the show pool.
+    expect(r.adminFeeCents).toBe(500);
+  });
+
+  it('holds a hostless screech-in after the fee, not before', () => {
+    const r = withFee({
+      totalOverrideCents: 0,
+      screech: [{ id: 'x', cashCents: toCents(20), squareCents: 0, guests: null,
+        sageRef: '', hosts: [] }],
+    });
+    expect(r.screech[0].unallocatedCents).toBe(1900);
+  });
+
+  it('leaves late tips paid to one person whole', () => {
+    const r = withFee({
+      totalOverrideCents: toCents(100),
+      lateTips: [{ id: 'l1', amountCents: toCents(40), mode: 'person',
+        payee: 'Pynn Jackie', description: '', sageRef: '' }],
+      screech: [{ id: 'x', cashCents: toCents(60), squareCents: 0, guests: null,
+        sageRef: '', hosts: [{ id: 'h', name: 'Small Andrew', helper: false }] }],
+    });
+    expect(r.latePersonalCents).toBe(4000);
+    expect(r.grandTotalCents).toBe(9500 + 5700 + 4000);
+  });
+
+  it('takes nothing when no fee is set, as on every sheet before it', () => {
+    expect(run().adminFeeCents).toBe(0);
+    expect(run().distributedCents).toBe(run().totalCents);
+  });
+});

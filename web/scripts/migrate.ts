@@ -22,10 +22,12 @@ const EXPECTED: Record<string, string[]> = {
     'id', 'location_id', 'show_type', 'show_type_id', 'contract_service',
     'event_date', 'show_name', 'guest_attendance', 'gratuity_cents',
     'cash_cents', 'square_cents', 'total_override_cents', 'cast_share_percent',
-    'office_hours', 'odd_cent_to', 'status', 'sage_ref', 'created_at',
+    'office_hours', 'odd_cent_to', 'admin_fee_percent', 'status', 'sage_ref',
+    'created_at',
   ],
   screech_session: [
-    'id', 'event_id', 'cash_cents', 'square_cents', 'guests', 'sage_ref', 'sort',
+    'id', 'event_id', 'cash_cents', 'square_cents', 'total_override_cents',
+    'guests', 'sage_ref', 'sort',
   ],
   screech_host: ['id', 'session_id', 'name', 'helper', 'sort'],
   late_tip: [

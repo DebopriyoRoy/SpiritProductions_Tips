@@ -51,13 +51,22 @@ Gratuity for the show
 + Cash tips collected at the bar
 + Total Square tips collected
 = TOTAL TIPS COLLECTED
+- Admin fee (5% of total tips, from October 2026)
+= TIPS DISTRIBUTED (95%)
 ```
+
+The admin fee is rounded to the cent and never paid to anyone. It is set per
+show (the "Admin fee %" rule, 5 by default) and covers late tips re-split with
+the show, but not late tips paid straight to one person. Each screech-in pays
+the same fee off its own tips, and its hosts share the rest equally. It applies
+at both venues.
+The workbook sheets before October 2026 had no fee; set it to 0 to rework one.
 
 ## 2. Splitting it
 
 ```
-Cast & Musicians pool = Total x 50%
-Staff pool            = Total x 50%
+Cast & Musicians pool = Tips distributed x 50%
+Staff pool            = Tips distributed x 50%
 ```
 
 The two halves are then divided on completely different units. This is the

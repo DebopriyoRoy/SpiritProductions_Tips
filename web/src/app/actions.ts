@@ -110,7 +110,7 @@ export async function saveEventAction(fd: FormData) {
          cash_cents=$4, square_cents=$5, total_override_cents=$6,
          cast_share_percent=$7, office_hours=$8, odd_cent_to=$9,
          contract_service=$10, event_date=COALESCE($12, event_date),
-         sage_ref=COALESCE($13, sage_ref)
+         sage_ref=COALESCE($13, sage_ref), admin_fee_percent=$14
        WHERE id=$11`,
       [
         String(fd.get('showName') ?? ''),
@@ -126,6 +126,7 @@ export async function saveEventAction(fd: FormData) {
         eventId,
         String(fd.get('eventDate') ?? '').trim() || null,
         fd.has('sageRef') ? String(fd.get('sageRef')).trim() : null,
+        Math.min(100, Math.max(0, num(fd.get('adminFeePercent'), 5))),
       ],
     );
 
@@ -173,17 +174,26 @@ export async function saveEventAction(fd: FormData) {
       }
       // Screech-in sessions and late tips. Every write is scoped to this
       // event, so a tampered id from another night changes nothing.
-      m = key.match(/^scr_(cash|square|guests|ref)_(.+)$/);
+      m = key.match(/^scr_(cash|square|total|guests|ref)_(.+)$/);
       if (m) {
         const [, field, id] = m;
         const raw = String(value).trim();
         const col = { cash: 'cash_cents', square: 'square_cents',
-          guests: 'guests', ref: 'sage_ref' }[field]!;
+          total: 'total_override_cents', guests: 'guests', ref: 'sage_ref' }[field]!;
         const v = field === 'ref' ? raw
-          : field === 'guests' ? (raw === '' ? null : Math.max(0, Math.round(num(raw))))
+          : field === 'guests' || field === 'total'
+            ? (raw === '' ? null
+              : field === 'guests' ? Math.max(0, Math.round(num(raw)))
+              : Math.max(0, toCents(num(raw))))
           : Math.max(0, toCents(num(raw)));
         await c.q(`UPDATE screech_session SET ${col}=$1 WHERE id=$2 AND event_id=$3`,
           [v, id, eventId]);
+        // A total that only repeats cash + Square is not an override; keep
+        // none, so the two parts stay what decides it.
+        await c.q(
+          `UPDATE screech_session SET total_override_cents=NULL
+            WHERE id=$1 AND event_id=$2 AND total_override_cents = cash_cents + square_cents`,
+          [id, eventId]);
         continue;
       }
       m = key.match(/^scrh_name_(.+)$/);

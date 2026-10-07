@@ -105,7 +105,11 @@ export interface ShowType {
  * pays 100% to staff and has no cast at all, and also drops the 50/50 and
  * Office sections entirely, narrowing the denominator.
  *
- * castSharePercent is only the starting value. It is copied onto the event
+ * Every show pays a 5% admin fee off its total tips before the split, so the
+ * formulas below divide the remaining 95%. Screech-in pays the same 5%, off
+ * each screech-in's own tips, before its hosts share the rest.
+ *
+ * castSharePercent and adminFeePercent are only starting values. It is copied onto the event
  * when the show is created and edited per night on the sheet, so a contract
  * that splits differently is a field change, not a code change.
  */
@@ -117,7 +121,7 @@ export const SHOW_TYPES: Record<string, ShowType> = {
       'Cast & Musicians = 50% of total tips / ratio of cast who worked. ' +
       'Service, Kitchen, Bar and Office = 50% of total tips / ' +
       '(Bar & Service + 50/50 + Kitchen + 6 office hours).',
-    rules: { castSharePercent: 50, officeHours: 6, oddCentTo: 'staff' },
+    rules: { castSharePercent: 50, officeHours: 6, oddCentTo: 'staff', adminFeePercent: 5 },
     hasCast: true,
     sections: ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'],
     hasContractService: false,
@@ -134,7 +138,7 @@ export const SHOW_TYPES: Record<string, ShowType> = {
       'Cast & Musicians = 50% of total tips / ratio of cast who worked. ' +
       'Service, Kitchen, Bar and Office = 50% of total tips / ' +
       '(Bar & Service + 50/50 + Kitchen + 6 office hours).',
-    rules: { castSharePercent: 50, officeHours: 6, oddCentTo: 'staff' },
+    rules: { castSharePercent: 50, officeHours: 6, oddCentTo: 'staff', adminFeePercent: 5 },
     hasCast: true,
     sections: ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'],
     hasContractService: true,
@@ -154,7 +158,7 @@ export const SHOW_TYPES: Record<string, ShowType> = {
     formula:
       'Total tips collected / (Bar & Service + Kitchen). ' +
       'No cast share, no 50/50, no office hours.',
-    rules: { castSharePercent: 0, officeHours: 0, oddCentTo: 'staff' },
+    rules: { castSharePercent: 0, officeHours: 0, oddCentTo: 'staff', adminFeePercent: 5 },
     hasCast: false,
     sections: ['BAR', 'SERVICE', 'KITCHEN'],
     hasContractService: true,
@@ -167,7 +171,7 @@ export const SHOW_TYPES: Record<string, ShowType> = {
     formula:
       'Screech-In tips are split equally between the host and any helpers. ' +
       'They are not part of any show pool.',
-    rules: { castSharePercent: 0, officeHours: 0, oddCentTo: 'staff' },
+    rules: { castSharePercent: 0, officeHours: 0, oddCentTo: 'staff', adminFeePercent: 5 },
     hasCast: false,
     sections: [],
     hasContractService: false,
@@ -348,6 +352,17 @@ export function getShowTypeForLocation(
     rules,
     formula: describeFormula(sections, hasCast, rules),
   };
+}
+
+/**
+ * Puts the night's admin fee in front of its show type's formula, so the
+ * sheet says plainly that the split is of what is left after the fee.
+ */
+export function withAdminFee(formula: string, adminFeePercent: number): string {
+  if (!(adminFeePercent > 0)) return formula;
+  const pct = +adminFeePercent.toFixed(2);
+  return `A ${pct}% admin fee is taken off total tips first, and the split ` +
+    `below is of the remaining ${+(100 - pct).toFixed(2)}%. ${formula}`;
 }
 
 export const SECTIONS: Section[] =
