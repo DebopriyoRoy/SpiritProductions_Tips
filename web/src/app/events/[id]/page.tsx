@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import {
   getLocation, LOCATIONS, SECTIONS, getShowTypeForLocation, CAST, everyone,
+  withAdminFee,
 } from '@/lib/config';
 import { loadEvent, toEngineInput, screechSeparate } from '@/lib/service';
 import { calculate, SECTION_LABEL, Section } from '@/lib/tips';
@@ -220,6 +221,15 @@ export default async function EventPage({
               {r.screech.length} screech-in{r.screech.length === 1 ? '' : 's'}
             </div>
           </div>
+          {r.screechAdminFeeCents > 0 && (
+            <div className="fig">
+              <div className="k">Admin fee ({r.adminFeePercent}%)</div>
+              <div className="v">{money(r.screechAdminFeeCents)}</div>
+              <div className="s">
+                {money(r.screechTotalCents - r.screechAdminFeeCents)} paid to hosts
+              </div>
+            </div>
+          )}
         </div>
         ) : (
         <div className="figures stick">
@@ -231,6 +241,13 @@ export default async function EventPage({
               {r.lateSplitCents > 0 && ` · incl. ${money(r.lateSplitCents)} late`}
             </div>
           </div>
+          {r.adminFeeCents > 0 && (
+            <div className="fig">
+              <div className="k">Admin fee ({r.adminFeePercent}%)</div>
+              <div className="v">{money(r.adminFeeCents)}</div>
+              <div className="s">{money(r.distributedCents)} left to split</div>
+            </div>
+          )}
           {show.hasCast ? (
             <div className="fig">
               <div className="k">Cast pool ({event.cast_share_percent}%)</div>
@@ -256,7 +273,9 @@ export default async function EventPage({
           <div className={`fig ${r.reconciliationCents === 0 ? 'is-ok' : 'is-alert'}`}>
             <div className="k">Check</div>
             <div className="v">{money(r.reconciliationCents)}</div>
-            <div className="s">cast + staff &minus; total</div>
+            <div className="s">
+              cast + staff{r.adminFeeCents > 0 && ' + fee'} &minus; total
+            </div>
           </div>
           {(r.screechTotalCents > 0 || r.latePersonalCents > 0) && (
             <div className="fig">
@@ -264,7 +283,8 @@ export default async function EventPage({
               <div className="v">{money(r.grandTotalCents)}</div>
               <div className="s">
                 show
-                {r.screechTotalCents > 0 && ` + ${money(r.screechTotalCents)} screech-in`}
+                {r.screechTotalCents > 0 &&
+                  ` + ${money(r.screechTotalCents - r.screechAdminFeeCents)} screech-in`}
                 {r.latePersonalCents > 0 && ` + ${money(r.latePersonalCents)} late`}
               </div>
             </div>
@@ -274,7 +294,7 @@ export default async function EventPage({
 
         <div className="formula">
           <b>How this show type pays</b>
-          {show.formula}
+          {withAdminFee(show.formula, r.adminFeePercent)}
         </div>
 
         {r.unallocatedCents > 0 && (
@@ -290,8 +310,8 @@ export default async function EventPage({
           <div className="note">
             Paying the spreadsheet&rsquo;s <em>displayed</em> figures would total{' '}
             {money(r.naiveRoundedTotalCents)} — {money(Math.abs(r.roundingDriftCents))}{' '}
-            {r.roundingDriftCents > 0 ? 'more' : 'less'} than the {money(r.totalCents)}{' '}
-            collected. The amounts below are exact and sum to the pool.
+            {r.roundingDriftCents > 0 ? 'more' : 'less'} than the {money(r.distributedCents)}{' '}
+            {r.adminFeeCents > 0 ? 'left after the admin fee' : 'collected'}. The amounts below are exact and sum to the pool.
           </div>
         )}
 
@@ -396,6 +416,12 @@ export default async function EventPage({
                 </select>
               </div>
               </>}
+              <div>
+                <label className="f" htmlFor="adminFeePercent">Admin fee %</label>
+                <input id="adminFeePercent" className="num" name="adminFeePercent"
+                       type="number" step="0.1" min="0" max="100"
+                       defaultValue={event.admin_fee_percent} />
+              </div>
               <div>
                 <label className="f" htmlFor="showName">Show name</label>
                 <input id="showName" name="showName" type="text"
@@ -733,9 +759,11 @@ export default async function EventPage({
                       <label className="f" htmlFor={`scr_total_${s.id}`}>
                         Total tips (cash + Square)
                       </label>
-                      {/* Shown, not saved: the pool is always cash + Square. */}
-                      <input id={`scr_total_${s.id}`} className="num" type="text"
-                             readOnly tabIndex={-1}
+                      {/* Kept in step with cash + Square as they are typed,
+                          but can be typed over when only the total is known. */}
+                      <input id={`scr_total_${s.id}`} className="num" name={`scr_total_${s.id}`}
+                             type="number" step="0.01" min="0"
+                             placeholder="sum of the two"
                              defaultValue={(s.tipsCents / 100).toFixed(2)} />
                     </div>
                   </div>
@@ -783,6 +811,12 @@ export default async function EventPage({
                           <button className="btn ghost small" type="submit">Add</button>
                         </td>
                       </tr>
+                      {s.adminFeeCents > 0 && (
+                        <tr>
+                          <td>Admin fee ({r.adminFeePercent}%)</td><td></td>
+                          <td className="num">&minus;{money(s.adminFeeCents)}</td><td></td>
+                        </tr>
+                      )}
                       <tr className="total">
                         <td>Tips collected</td><td></td>
                         <td className="num">{money(s.tipsCents)}</td>

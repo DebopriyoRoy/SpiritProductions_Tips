@@ -228,6 +228,8 @@ CREATE TABLE IF NOT EXISTS event (
   cast_share_percent   REAL NOT NULL DEFAULT 50,
   office_hours         REAL NOT NULL DEFAULT 6,
   odd_cent_to          TEXT NOT NULL DEFAULT 'staff',
+  -- Kept off total tips before the split; only the rest is paid out.
+  admin_fee_percent    REAL NOT NULL DEFAULT 5,
   status               TEXT NOT NULL DEFAULT 'draft',
   -- The Sage journal number the show's tips were posted under.
   sage_ref             TEXT NOT NULL DEFAULT '',
@@ -242,6 +244,8 @@ CREATE TABLE IF NOT EXISTS screech_session (
   event_id     TEXT NOT NULL REFERENCES event(id) ON DELETE CASCADE,
   cash_cents   INTEGER NOT NULL DEFAULT 0,
   square_cents INTEGER NOT NULL DEFAULT 0,
+  -- Typed in when the total is known but not how it split; null = cash + Square.
+  total_override_cents INTEGER,
   guests       INTEGER,
   sage_ref     TEXT NOT NULL DEFAULT '',
   sort         INTEGER NOT NULL DEFAULT 0
@@ -387,9 +391,13 @@ ALTER TABLE event
   ADD COLUMN IF NOT EXISTS cast_share_percent   REAL NOT NULL DEFAULT 50,
   ADD COLUMN IF NOT EXISTS office_hours         REAL NOT NULL DEFAULT 6,
   ADD COLUMN IF NOT EXISTS odd_cent_to          TEXT NOT NULL DEFAULT 'staff',
+  ADD COLUMN IF NOT EXISTS admin_fee_percent    REAL NOT NULL DEFAULT 5,
   ADD COLUMN IF NOT EXISTS status               TEXT NOT NULL DEFAULT 'draft',
   ADD COLUMN IF NOT EXISTS sage_ref             TEXT NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS created_at           TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE screech_session
+  ADD COLUMN IF NOT EXISTS total_override_cents INTEGER;
 
 ALTER TABLE cast_row
   ADD COLUMN IF NOT EXISTS pinned_cents INTEGER,
@@ -503,10 +511,12 @@ export interface EventRow {
   gratuity_cents: number; cash_cents: number; square_cents: number;
   total_override_cents: number | null;
   cast_share_percent: number; office_hours: number; odd_cent_to: string;
+  admin_fee_percent: number;
   status: string; sage_ref: string; created_at: string;
 }
 export interface ScreechSessionRow {
   id: string; event_id: string; cash_cents: number; square_cents: number;
+  total_override_cents: number | null;
   guests: number | null; sage_ref: string; sort: number;
 }
 export interface ScreechHostRow {

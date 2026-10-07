@@ -62,6 +62,13 @@ export interface RuleSet {
   officeHours: number;
   /** Who gets the extra cent when the split is not exactly representable. */
   oddCentTo: 'cast' | 'staff';
+  /**
+   * Percentage of the show's tips kept as an admin fee before anything is
+   * split, so only the rest reaches cast and staff. Missing means none, which
+   * is how every workbook sheet before October 2026 was worked out. Each
+   * screech-in pays the same fee, worked out on its own tips.
+   */
+  adminFeePercent?: number;
 }
 
 export const DEFAULT_RULES: RuleSet = {
@@ -87,6 +94,8 @@ export interface ScreechSession {
   /** Mostly cash; Square when a guest tips while booking online. */
   cashCents: Cents;
   squareCents: Cents;
+  /** When the split is unknown, set the total directly, as on a show. */
+  totalOverrideCents?: Cents | null;
   guests: number | null;
   /** The Sage journal number this was posted under, e.g. J6924. */
   sageRef: string;
@@ -130,7 +139,12 @@ export interface ScreechHostPayout extends ScreechHost {
 
 export interface ScreechResult {
   id: string;
+  /** Cash + Square, before the admin fee. */
   tipsCents: Cents;
+  /** The admin fee kept off this screech-in. Never paid out. */
+  adminFeeCents: Cents;
+  /** tipsCents less the fee: what the hosts share. */
+  distributedCents: Cents;
   guests: number | null;
   sageRef: string;
   hosts: ScreechHostPayout[];
@@ -173,7 +187,13 @@ export interface StaffPayout extends Payout {
 }
 
 export interface Result {
+  /** Every show tip collected, late tips re-split included, before the fee. */
   totalCents: Cents;
+  /** The admin fee taken off totalCents before the split. Never paid out. */
+  adminFeePercent: number;
+  adminFeeCents: Cents;
+  /** totalCents less the admin fee: what the cast and staff pools share. */
+  distributedCents: Cents;
   castPoolCents: Cents;
   staffPoolCents: Cents;
   /** Exact, unrounded, for display only — never used to compute a payout. */
@@ -195,7 +215,7 @@ export interface Result {
   unallocatedCents: Cents;
   unallocatedCastCents: Cents;
   unallocatedStaffCents: Cents;
-  /** cast + staff + unallocated - total - overpaid. Always 0; asserted below. */
+  /** cast + staff + unallocated + fee - total - overpaid. Always 0; asserted below. */
   reconciliationCents: Cents;
   /** How far hand-set amounts exceed the pool. 0 when nothing is overspent. */
   overpaidCents: Cents;
@@ -214,13 +234,15 @@ export interface Result {
   lateUnassignedCents: Cents;
   screech: ScreechResult[];
   screechTotalCents: Cents;
+  /** The admin fee kept off all screech-ins together. */
+  screechAdminFeeCents: Cents;
   /**
    * Everyone paid anything tonight, with show, screech-in and late tips
    * side by side. Only people with screech-in or late money have a total
    * different from their show pay — the sheet's "Total for <name>" lines.
    */
   personTotals: PersonTotal[];
-  /** Show total + screech-in + late tips paid to a person. */
+  /** Show and screech-in tips after the admin fee + late tips paid to a person. */
   grandTotalCents: Cents;
   warnings: string[];
 }
@@ -329,8 +351,15 @@ export function calculate(input: EventInput): Result {
     );
   }
 
+  // The admin fee comes off the whole show total, late re-split tips
+  // included, before cast and staff see any of it. Screech-in and late tips
+  // paid to one person are not show tips and are left whole.
+  const adminFeePercent = rules.adminFeePercent ?? 0;
+  const adminFeeCents = Math.round((totalCents * adminFeePercent) / 100);
+  const distributedCents = totalCents - adminFeeCents;
+
   const [castPoolCents, staffPoolCents] = splitPool(
-    totalCents,
+    distributedCents,
     rules.castSharePercent,
     rules.oddCentTo === 'cast' ? 'first' : 'second',
   );
@@ -506,11 +535,11 @@ export function calculate(input: EventInput): Result {
   // Non-zero only when hand-set amounts overshoot; CHECK on the sheet shows
   // it, which is the whole point of surfacing it instead of throwing.
   const reconciliationCents =
-    castSum + staffSum + unallocatedCents - totalCents - overpaidCents;
+    castSum + staffSum + unallocatedCents + adminFeeCents - totalCents - overpaidCents;
   if (reconciliationCents !== 0) {
     throw new Error(
       `Tip allocation failed to reconcile: ${castSum} + ${staffSum} + ` +
-      `${unallocatedCents} != ${totalCents}`,
+      `${unallocatedCents} + ${adminFeeCents} != ${totalCents}`,
     );
   }
   if (unallocatedCents > 0) {
@@ -524,8 +553,8 @@ export function calculate(input: EventInput): Result {
   // These come from the EXACT, unrounded pool halves, matching the spreadsheet's
   // own basis (§6). Payouts above use the integer-cent pools instead; the two
   // differ by at most half a cent per pool, which is why the drift below exists.
-  const exactCastPool = (totalCents * rules.castSharePercent) / 100;
-  const exactStaffPool = totalCents - exactCastPool;
+  const exactCastPool = (distributedCents * rules.castSharePercent) / 100;
+  const exactStaffPool = distributedCents - exactCastPool;
   const castRatePerShare =
     castWorkedRatioTotal > 0 ? exactCastPool / 100 / castWorkedRatioTotal : 0;
   const staffRatePerHour =
@@ -559,29 +588,42 @@ export function calculate(input: EventInput): Result {
   }
 
   // ---- Screech-in: each session its own pool, split equally ----
+  // The admin fee comes off each session's tips, as it does a show's, and
+  // the hosts share what is left.
   const screech: ScreechResult[] = (input.screech ?? []).map((s, n) => {
-    const tipsCents = s.cashCents + s.squareCents;
+    const partsCents = s.cashCents + s.squareCents;
+    const tipsCents = s.totalOverrideCents != null ? s.totalOverrideCents : partsCents;
+    if (s.totalOverrideCents != null && partsCents > 0 && partsCents !== tipsCents) {
+      warnings.push(
+        `Screech-In ${n + 1} total (${(tipsCents / 100).toFixed(2)}) does not ` +
+        `match its cash and Square tips (${(partsCents / 100).toFixed(2)}).`,
+      );
+    }
+    const feeCents = Math.round((tipsCents * adminFeePercent) / 100);
+    const sharedCents = tipsCents - feeCents;
     const named = s.hosts.filter((h) => h.name.trim() !== '');
-    const shares = allocateByWeight(tipsCents, named.map(() => 1));
+    const shares = allocateByWeight(sharedCents, named.map(() => 1));
     const byId = new Map(named.map((h, i) => [h.id, shares[i]]));
-    const unallocated = named.length ? 0 : tipsCents;
+    const unallocated = named.length ? 0 : sharedCents;
     if (unallocated > 0) {
       warnings.push(
-        `Screech-In ${n + 1} has ${(tipsCents / 100).toFixed(2)} in tips but ` +
+        `Screech-In ${n + 1} has ${(sharedCents / 100).toFixed(2)} to pay but ` +
         `no host, so it has not been paid. Add who hosted it.`,
       );
     }
     return {
-      id: s.id, tipsCents, guests: s.guests, sageRef: s.sageRef,
+      id: s.id, tipsCents, adminFeeCents: feeCents, distributedCents: sharedCents,
+      guests: s.guests, sageRef: s.sageRef,
       hosts: s.hosts.map((h) => ({ ...h, amountCents: byId.get(h.id) ?? 0 })),
       unallocatedCents: unallocated,
     };
   });
   const screechTotalCents = screech.reduce((a, s) => a + s.tipsCents, 0);
+  const screechAdminFeeCents = screech.reduce((a, s) => a + s.adminFeeCents, 0);
   for (const s of screech) {
     const paid = s.hosts.reduce((a, h) => a + h.amountCents, 0);
-    if (paid + s.unallocatedCents !== s.tipsCents) {
-      throw new Error(`Screech-In allocation lost cents: ${paid} != ${s.tipsCents}`);
+    if (paid + s.unallocatedCents !== s.distributedCents) {
+      throw new Error(`Screech-In allocation lost cents: ${paid} != ${s.distributedCents}`);
     }
   }
 
@@ -609,6 +651,9 @@ export function calculate(input: EventInput): Result {
 
   return {
     totalCents,
+    adminFeePercent,
+    adminFeeCents,
+    distributedCents,
     nightTipsCents,
     lateSplitCents,
     latePersonal,
@@ -616,8 +661,10 @@ export function calculate(input: EventInput): Result {
     lateUnassignedCents,
     screech,
     screechTotalCents,
+    screechAdminFeeCents,
     personTotals,
-    grandTotalCents: totalCents + screechTotalCents + latePersonalCents,
+    grandTotalCents:
+      distributedCents + screechTotalCents - screechAdminFeeCents + latePersonalCents,
     overpaidCents,
     castPoolCents,
     staffPoolCents,
@@ -636,7 +683,7 @@ export function calculate(input: EventInput): Result {
     unallocatedStaffCents,
     reconciliationCents,
     naiveRoundedTotalCents,
-    roundingDriftCents: naiveRoundedTotalCents - totalCents,
+    roundingDriftCents: naiveRoundedTotalCents - distributedCents,
     warnings,
   };
 }
