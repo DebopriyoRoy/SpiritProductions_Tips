@@ -1,8 +1,8 @@
 import ExcelJS from 'exceljs';
 import { NextRequest } from 'next/server';
 import { nightsBetween, payoutRosterFor } from '@/lib/service';
-import { addNightSheet, sheetNameForDate } from '@/lib/xlsxExport';
-import { addPayoutSheet } from '@/lib/payoutSheet';
+import { addNightSheet } from '@/lib/xlsxExport';
+import { addPayoutSheet, PayoutColumn } from '@/lib/payoutSheet';
 import { currentUser, visibleLocations } from '@/lib/auth';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -28,13 +28,16 @@ export async function GET(req: NextRequest) {
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Spirit Tips';
-  const totals: { name: string; nights: Awaited<ReturnType<typeof nightsBetween>>;
-                  locationId: string }[] = [];
+  const totals: { name: string; columns: PayoutColumn[]; locationId: string }[] = [];
   for (const loc of venues) {
     const nights = await nightsBetween(loc.id, from, to);
-    for (const n of nights) addNightSheet(wb, n.result, n.meta);
-    if (nights.length) {
-      totals.push({ name: `TOTAL PAYOUT ${loc.id.toUpperCase()}`, nights, locationId: loc.id });
+    const columns = nights.map((n) => ({
+      label: n.label,
+      result: n.result,
+      adminFeeRefs: addNightSheet(wb, n.result, n.meta).adminFeeRefs,
+    }));
+    if (columns.length) {
+      totals.push({ name: `TOTAL PAYOUT ${loc.id.toUpperCase()}`, columns, locationId: loc.id });
     }
   }
   if (!totals.length) {
@@ -43,14 +46,7 @@ export async function GET(req: NextRequest) {
       { status: 404 });
   }
   for (const t of totals) {
-    addPayoutSheet(wb, t.name,
-      t.nights.map((n) => ({
-        // Dated as Spirit's tabs are, for both venues; a second show keeps its "(2)".
-        label: sheetNameForDate(n.meta.eventDate)
-          + (n.meta.sheetName!.match(/ \(\d+\)$/)?.[0] ?? ''),
-        result: n.result,
-      })),
-      payoutRosterFor(t.locationId));
+    addPayoutSheet(wb, t.name, t.columns, payoutRosterFor(t.locationId));
   }
 
   // Named as the office names it: Tips_09-08to09-19_.xlsx

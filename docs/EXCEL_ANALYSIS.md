@@ -162,3 +162,22 @@ sheet needs manual rows alongside synced ones.
 7. Should `Source reported total` survive once Square is authoritative, or is it
    scaffolding for the paper-parallel period only?
 8. One workbook per event, or one per month with a tab per show?
+
+## Fortnight workbook (`Updated_Tips_09-21_26to10-04_26.xlsx`)
+
+The office's hand-finished fortnight workbook matches the app's night sheets
+cell for cell. Its `TOTAL PAYOUT` sheets add three things the export now does:
+
+- **One row per person.** The same person under another spelling (`Natalie
+  Noseworthy` / `Noseworthy, Natalie`, `Willson,Amy`, `Bobbit Neil`) or in a
+  second block is folded into their first row. The row is shaded yellow and a
+  `MERGE NOTE` column (after TOTAL and a blank column) lists every name and
+  block merged. Only the same words in any order, with at most one one-letter
+  typo in a word of five letters or more, count as the same person, so
+  `Lundrigan William` and `Lundrigan Ash` stay apart. Payouts are unchanged;
+  this only affects the roll-up.
+- **`ADMIN FEE (5%)`**, one blank row under GRAND TOTAL, with each night's cell
+  a formula pointing at that night's own admin fee cell(s), and a TOTAL.
+- **Tab names**: `Screech-in Sept-30-2026` for a screech-in night, and a
+  second show on a date by its show name (`Riley's Tours Oct-03-2026`). The
+  TOTAL PAYOUT column headings stay `Sept-30-2026` and `Oct-03-2026 (2)`.
