@@ -81,11 +81,21 @@ function shade(row: ExcelJS.Row, fill: Fill, cols: number[]) {
   }
 }
 
+/** A night's sheet, and where on it the admin fee kept that night sits. */
+export interface NightSheet {
+  ws: ExcelJS.Worksheet;
+  /** Cell references such as "'Sept-08-2026'!B5", for the TOTAL PAYOUT sheet. */
+  adminFeeRefs: string[];
+}
+
 /** Adds one night's sheet, laid out as the tips workbook lays it out. */
 export function addNightSheet(
   wb: ExcelJS.Workbook, r: Result, meta: ExportMeta,
-): ExcelJS.Worksheet {
+): NightSheet {
   const ws = wb.addWorksheet(meta.sheetName ?? sheetNameForDate(meta.eventDate));
+  const adminFeeRefs: string[] = [];
+  const feeAt = (row: ExcelJS.Row) =>
+    adminFeeRefs.push(`'${ws.name.replace(/'/g, "''")}'!B${row.number}`);
 
   ws.columns = [
     { width: 40 }, { width: 12 }, { width: 10 }, { width: 10 }, { width: 14 },
@@ -117,7 +127,7 @@ export function addNightSheet(
     { theme: 3, tint: 0.5999938962981048 } as Partial<ExcelJS.Color>,
   ];
 
-  const screechBlock = () => {
+  const screechBlock = (countFees: boolean) => {
     // As the workbook lays it out: each screech-in's tips on its own shaded
     // line, a gap, then each host and helper with what they receive.
     for (const [n, s] of r.screech.entries()) {
@@ -136,7 +146,8 @@ export function addNightSheet(
         row.getCell(5).numFmt = MONEY;
       }
       if (s.adminFeeCents > 0) {
-        label(`Admin fee (${r.adminFeePercent}%)`, s.adminFeeCents / 100, MONEY);
+        const fee = label(`Admin fee (${r.adminFeePercent}%)`, s.adminFeeCents / 100, MONEY);
+        if (countFees) feeAt(fee);
       }
       if (s.unallocatedCents > 0) {
         label('UNALLOCATED (no host)', s.unallocatedCents / 100, MONEY);
@@ -152,11 +163,11 @@ export function addNightSheet(
     ws.addRow([]);
     header(['Person Name', '', '', '', 'Amount Receivable']);
     ws.addRow([]);
-    screechBlock();
+    screechBlock(false);
     ws.addRow([]);
     const t = ws.addRow(['TOTAL', '', '', '', r.screechTotalCents / 100]);
     if (r.screechAdminFeeCents > 0) {
-      label(`Admin fee (${r.adminFeePercent}%)`, r.screechAdminFeeCents / 100, MONEY);
+      feeAt(label(`Admin fee (${r.adminFeePercent}%)`, r.screechAdminFeeCents / 100, MONEY));
       label('Paid to hosts', (r.screechTotalCents - r.screechAdminFeeCents) / 100, MONEY);
     }
     t.font = { name: 'Arial', size: 10, bold: true };
@@ -165,7 +176,7 @@ export function addNightSheet(
       ws.addRow([]);
       for (const w of r.warnings) ws.addRow([w]).font = { name: 'Arial', size: 10, italic: true };
     }
-    return ws;
+    return { ws, adminFeeRefs };
   }
 
   title(`${meta.locationName} — ${meta.showType}`);
@@ -181,7 +192,7 @@ export function addNightSheet(
     label('  of which late tips, re-split', r.lateSplitCents / 100, MONEY);
   }
   if (r.adminFeeCents > 0) {
-    label(`Admin fee (${r.adminFeePercent}%)`, r.adminFeeCents / 100, MONEY);
+    feeAt(label(`Admin fee (${r.adminFeePercent}%)`, r.adminFeeCents / 100, MONEY));
     label('Tips distributed', r.distributedCents / 100, MONEY);
   }
   ws.addRow([]);
@@ -304,7 +315,7 @@ export function addNightSheet(
   if (r.screech.length) {
     ws.addRow([]);
     shade(title('Screech - IN'), FILL.screech, [1]);
-    screechBlock();
+    screechBlock(true);
   }
   const extra = r.personTotals.filter((p) => p.screechCents || p.lateCents);
   if (extra.length) {
@@ -330,7 +341,7 @@ export function addNightSheet(
   }
 
   ws.views = [{ state: 'frozen', ySplit: 1 }];
-  return ws;
+  return { ws, adminFeeRefs };
 }
 
 export { fmt };

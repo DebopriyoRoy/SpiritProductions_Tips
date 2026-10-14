@@ -10,7 +10,7 @@ import {
   getLocation, getShowTypeForLocation, CAST, showTypesFor, SECTIONS,
   withAdminFee,
 } from './config';
-import { ExportMeta, sheetNameFor } from './xlsxExport';
+import { ExportMeta, sheetNameFor, sheetNameForDate } from './xlsxExport';
 import type { PayoutRoster } from './payoutSheet';
 import { getProvider } from './square';
 import { sectionForWageTitle, isNonTipped, hoursFromTimecard } from './mapping';
@@ -335,10 +335,16 @@ export function exportMetaFor(loaded: Loaded, locationId: string): ExportMeta {
   };
 }
 
+/** Excel's limits on a tab name: 31 characters, none of []:*?/\ */
+const tabName = (s: string) => s.replace(/[[\]:*?/\\]/g, '').slice(0, 31).trim();
+
 /**
  * Every night between two dates, ready for the workbook: one entry per sheet.
  * A screech-in merged into a show is part of that show's sheet, and a night
- * with nothing paid out is left out. Two shows on one date get "(2)".
+ * with nothing paid out is left out. Tabs are named as the office names them:
+ * "Screech-in Sept-30-2026" for a screech-in night, and a second show on a
+ * date by its show ("Riley's Tours Oct-03-2026"), while its TOTAL PAYOUT
+ * column reads "Oct-03-2026 (2)".
  */
 export async function nightsBetween(locationId: string, from: string, to: string) {
   await adoptStrayScreech(locationId);
@@ -346,8 +352,9 @@ export async function nightsBetween(locationId: string, from: string, to: string
   const events = await q<{ id: string }>(
     `SELECT id FROM event WHERE location_id = $1 AND event_date BETWEEN $2 AND $3
       ORDER BY event_date, created_at, id`, [locationId, from, to]);
-  const nights: { result: Result; meta: ExportMeta }[] = [];
+  const nights: { result: Result; meta: ExportMeta; label: string }[] = [];
   const used = new Map<string, number>();
+  const tabs = new Set<string>();
   for (const { id } of events) {
     const loaded = await loadEvent(id, locationId);
     if (!loaded || loaded.mergedInto) continue;
@@ -355,10 +362,18 @@ export async function nightsBetween(locationId: string, from: string, to: string
       toEngineInput(loaded.event, loaded.cast, loaded.staff, loaded.extras));
     if (!result.grandTotalCents) continue;
     const meta = exportMetaFor(loaded, locationId);
-    const n = (used.get(meta.sheetName!) ?? 0) + 1;
-    used.set(meta.sheetName!, n);
-    if (n > 1) meta.sheetName = `${meta.sheetName} (${n})`;
-    nights.push({ result, meta });
+    const date = meta.sheetName!;
+    const n = (used.get(date) ?? 0) + 1;
+    used.set(date, n);
+    // Dated as Spirit's tabs are, for both venues, on the TOTAL PAYOUT sheet.
+    const label = sheetNameForDate(meta.eventDate) + (n > 1 ? ` (${n})` : '');
+    let tab = meta.screechOnly ? tabName(`Screech-in ${date}`)
+      : n > 1 ? tabName(`${meta.showName.slice(0, 30 - date.length)} ${date}`)
+      : date;
+    if (tabs.has(tab.toLowerCase())) tab = tabName(`${date} (${n})`);
+    tabs.add(tab.toLowerCase());
+    meta.sheetName = tab;
+    nights.push({ result, meta, label });
   }
   return nights;
 }

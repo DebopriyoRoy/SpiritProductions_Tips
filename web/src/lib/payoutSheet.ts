@@ -3,6 +3,8 @@ import { Result, Section, SECTION_LABEL } from './tips';
 
 const MONEY = '#,##0.00;(#,##0.00);"-"';
 const OTHER = 'OTHER';
+/** The yellow the office marks a merged row with. */
+const MERGED = { argb: 'FFFFFF00' };
 type Block = 'CAST' | Section | typeof OTHER;
 
 /** One night's column on a "TOTAL PAYOUT" sheet. */
@@ -10,6 +12,9 @@ export interface PayoutColumn {
   /** The column heading: the night's tab name, such as "Sept-08-2026". */
   label: string;
   result: Result;
+  /** The cells on the night's own sheet that hold its admin fee, such as
+   * "'Sept-08-2026'!B5", so the ADMIN FEE row points back at them. */
+  adminFeeRefs?: string[];
 }
 
 /** Who the venue lists, block by block, in the workbook's order. */
@@ -76,18 +81,85 @@ export function payoutGrid(columns: PayoutColumn[], roster: PayoutRoster) {
     cents.forEach((c, col) => add(home, name, col, c));
   }
 
-  return blocks.map(({ block, title }) => {
+  const grid = blocks.map(({ block, title }) => {
     const byName = amounts.get(block)!;
     const names = [...(listed.get(block) ?? [])];
     for (const n of byName.keys()) if (!names.includes(n)) names.push(n);
     return {
       title,
-      rows: names.map((name) => ({
+      rows: names.map((name): PayoutRow => ({
         name: block === 'CAST' && technical.has(name) ? `${name} (Technical)` : name,
         cents: byName.get(name) ?? columns.map(() => 0),
       })),
     };
-  }).filter((b) => b.rows.length);
+  });
+
+  // One row per person, as the office's sheet has: the same person under two
+  // spellings or in two blocks is folded into their first row, which is
+  // marked and says what was merged so nothing is folded silently.
+  const kept: { row: PayoutRow; title: string; parts: string[] }[] = [];
+  for (const b of grid) {
+    b.rows = b.rows.filter((r) => {
+      const into = kept.find((k) => samePerson(k.row.name, r.name));
+      if (!into) {
+        kept.push({ row: r, title: b.title, parts: [`${r.name} [${b.title}]`] });
+        return true;
+      }
+      r.cents.forEach((c, i) => { into.row.cents[i] += c; });
+      into.parts.push(`${r.name} [${b.title}]`);
+      return false;
+    });
+  }
+  for (const k of kept) {
+    if (k.parts.length > 1) k.row.mergeNote = `Merged: ${k.parts.join(' + ')}`;
+  }
+  return grid.filter((b) => b.rows.length);
+}
+
+export interface PayoutRow {
+  name: string;
+  cents: number[];
+  /** Set when other rows were folded into this one. */
+  mergeNote?: string;
+}
+
+/** A name's words, lower-cased, without nicknames in brackets or punctuation. */
+const words = (name: string) =>
+  name.toLowerCase().replace(/\([^)]*\)/g, ' ').split(/[^a-z]+/).filter(Boolean);
+
+/** True when two words differ by at most one letter added, dropped or changed. */
+function nearly(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else { i++; j++; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+/**
+ * Whether two roster or timecard names are the same person: the same words in
+ * any order ("Stuckless Leslie", "Leslie Stuckless", "Stacey,TAylor"), allowing
+ * one typo in one longer word ("Willson,Amy", "Bobbit Neil").
+ */
+export function samePerson(a: string, b: string): boolean {
+  const x = words(a), y = words(b);
+  if (!x.length || x.length !== y.length) return false;
+  const left = [...y];
+  let typos = 0;
+  for (const w of x) {
+    let k = left.indexOf(w);
+    if (k < 0) {
+      k = left.findIndex((v) => v.length >= 5 && w.length >= 5 && nearly(v, w));
+      if (k < 0 || ++typos > 1) return false;
+    }
+    left.splice(k, 1);
+  }
+  return true;
 }
 
 const colLetter = (n: number) => {
@@ -110,8 +182,10 @@ export function addPayoutSheet(
   const first = 3;                          // nights start in column C
   const last = first + columns.length - 1;
   const totalCol = last + 2;                // one blank column, then TOTAL
-  ws.getColumn(1).width = 32.7;
+  const noteCol = totalCol + 2;             // another blank, then MERGE NOTE
+  ws.getColumn(1).width = 32.67;
   for (let c = first; c <= totalCol; c++) ws.getColumn(c).width = 12.5;
+  ws.getColumn(noteCol).width = 70;
 
   const bold = { name: 'Arial', size: 10, bold: true };
   const plain = { name: 'Arial', size: 10 };
@@ -123,9 +197,11 @@ export function addPayoutSheet(
   head.getCell(1).value = 'DATE';
   columns.forEach((c, i) => { head.getCell(first + i).value = c.label; });
   head.getCell(totalCol).value = 'TOTAL';
+  head.getCell(noteCol).value = 'MERGE NOTE';
   head.font = plain;
   head.getCell(1).font = bold;
   head.getCell(totalCol).font = bold;
+  head.getCell(noteCol).font = bold;
 
   let firstPerson = 0, lastPerson = 0;
   const colTotals = columns.map(() => 0);
@@ -152,6 +228,14 @@ export function addPayoutSheet(
       };
       total.numFmt = MONEY;
       total.font = bold;
+      if (p.mergeNote) {
+        row.getCell(noteCol).value = p.mergeNote;
+        const marked = [1, totalCol,
+          ...p.cents.flatMap((c, i) => (c ? [first + i] : []))];
+        for (const c of marked) {
+          row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: MERGED };
+        }
+      }
     }
     ws.addRow([]);
   }
@@ -172,6 +256,31 @@ export function addPayoutSheet(
     result: colTotals.reduce((a, b) => a + b, 0) / 100,
   };
   g.numFmt = MONEY;
+
+  // What the venue kept, pointing back at each night's own admin fee cells,
+  // so GRAND TOTAL + ADMIN FEE is every tip collected in the period.
+  const fees = columns.map((c) => c.result.adminFeeCents + c.result.screechAdminFeeCents);
+  if (fees.some(Boolean)) {
+    const percent = columns.find((c) => c.result.adminFeePercent)?.result.adminFeePercent ?? 0;
+    ws.addRow([]);
+    const fee = ws.addRow([`ADMIN FEE (${percent}%)`]);
+    fee.font = bold;
+    columns.forEach((c, i) => {
+      const cell = fee.getCell(first + i);
+      cell.value = c.adminFeeRefs?.length
+        ? { formula: c.adminFeeRefs.join('+'), result: fees[i] / 100 }
+        : fees[i] / 100;
+      cell.numFmt = MONEY;
+      cell.font = bold;
+    });
+    const t = fee.getCell(totalCol);
+    t.value = {
+      formula: sumRow(fee.number),
+      result: fees.reduce((a, b) => a + b, 0) / 100,
+    };
+    t.numFmt = MONEY;
+    t.font = bold;
+  }
 
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2 }];
   return ws;
