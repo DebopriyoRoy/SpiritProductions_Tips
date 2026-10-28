@@ -53,14 +53,15 @@ export async function createEvent(input: {
       }
     }
 
-    // Seed the whole roster at 0.00 hours, as the workbook lists it. Office
-    // included: the app must not invent who worked.
+    // Seed the whole roster at 0.00 hours and unticked, as the workbook lists
+    // it. Office included: the app must not invent who worked. The timecard
+    // import ticks whoever clocked in and out.
     for (const section of show.sections) {
       const names = show.roster[section] ?? [];
       for (const [i, name] of names.entries()) {
         await c.q(
           `INSERT INTO staff_row (id,event_id,name,section,hours,included,sort)
-           VALUES ($1,$2,$3,$4,0,true,$5)`,
+           VALUES ($1,$2,$3,$4,0,false,$5)`,
           [uid(), id, name, section, i],
         );
       }

@@ -23,6 +23,8 @@ export interface ImportResult {
   dateFilterIgnored: boolean;
   skippedNoName: number;
   skippedOtherDate: number;
+  /** Rows with a clock-in but no clock-out: a shift that never finished. */
+  skippedNoClockOut: number;
   warnings: string[];
 }
 
@@ -45,6 +47,8 @@ const HOUR_KEYS  = [
 ];
 const DATE_KEYS  = ['date', 'shift date', 'business date', 'clock-in', 'clock in', 'start date', 'start'];
 const JOB_KEYS   = ['job title', 'job', 'role', 'wage title', 'position'];
+/** No bare "end": it would match inside "attendance". */
+const OUT_KEYS   = ['clock-out', 'clock out', 'end time', 'end date'];
 
 const findCol = (headers: string[], keys: string[], exclude: number[] = []) => {
   const ok = (i: number) => i >= 0 && !exclude.includes(i);
@@ -284,6 +288,7 @@ export async function parseTimecard(
   const cHours = findCol(headers, HOUR_KEYS);
   const cDate  = findCol(headers, DATE_KEYS);
   const cJob   = findCol(headers, JOB_KEYS);
+  const cOut   = findCol(headers, OUT_KEYS);
 
   if (cHours < 0) throw new Error('No hours column found in that file.');
   if (cName < 0 && cLast < 0) throw new Error('No name column found in that file.');
@@ -296,7 +301,7 @@ export async function parseTimecard(
 
   const rows: ImportedRow[] = [];
   const datesSeen = new Set<string>();
-  let skippedNoName = 0, skippedOtherDate = 0;
+  let skippedNoName = 0, skippedOtherDate = 0, skippedNoClockOut = 0;
 
   for (let r = headerRow + 1; r < grid.length; r++) {
     const v = grid[r];
@@ -316,8 +321,14 @@ export async function parseTimecard(
       continue;
     }
 
+    // Only a finished shift counts: somebody still clocked in, or listed with
+    // no time at all, did not work the night as far as the sheet can tell.
+    if (cOut >= 0 && String(v[cOut] ?? '').trim() === '') {
+      skippedNoClockOut++;
+      continue;
+    }
     const raw = toHours(v[cHours]);
-    if (raw == null) continue;
+    if (raw == null || raw <= 0) continue;
 
     const hours = Math.min(Math.round(raw * 100) / 100, HOURS_CAP);
     rows.push({
@@ -343,8 +354,24 @@ export async function parseTimecard(
     dateFilterIgnored: !!opts.ignoreDates && cDate >= 0,
     skippedNoName,
     skippedOtherDate,
+    skippedNoClockOut,
     warnings,
   };
+}
+
+/**
+ * The roster rows an import should untick: everyone the timecard did not
+ * clock, unless somebody has typed hours against them by hand. The tick means
+ * "worked tonight", and the timecard is the record of who did; a hand-entered
+ * row (Extra Help, a forgotten punch) is left as it was.
+ */
+export function rowsToUntick(
+  staff: { id: string; hours: number; included: boolean }[],
+  clocked: ReadonlySet<string>,
+): string[] {
+  return staff
+    .filter((r) => r.included && !clocked.has(r.id) && !(r.hours > 0))
+    .map((r) => r.id);
 }
 
 /** Kept so existing callers and tests that name the workbook path still work. */

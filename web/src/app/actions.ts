@@ -10,8 +10,9 @@ import {
 import { requireLocation, requireUser, destroySession, isAdmin } from '@/lib/auth';
 import { seedForeverCountry } from '@/lib/demo';
 import { SECTION_LABEL, CAST_SECTION, type Section } from '@/lib/tips';
-import { parseTimecard, nameKey, sectionFromJobTitle, suggestName, HOURS_CAP }
-  from '@/lib/timecardImport';
+import {
+  parseTimecard, nameKey, sectionFromJobTitle, suggestName, rowsToUntick, HOURS_CAP,
+} from '@/lib/timecardImport';
 import { loadEvent } from '@/lib/service';
 import { isoDate } from '@/lib/db';
 import { redirect } from 'next/navigation';
@@ -534,6 +535,7 @@ export async function importTimecardAction(fd: FormData) {
 
   const staffSet = hoursById.size;
   const castTicked = castHit.size;
+  const untick = rowsToUntick(loaded.staff, new Set(hoursById.keys()));
 
   await tx(async (c) => {
     for (const [id, hours] of hoursById) {
@@ -544,6 +546,9 @@ export async function importTimecardAction(fd: FormData) {
     }
     for (const id of castHit) {
       await c.q('UPDATE cast_row SET worked=true WHERE id=$1', [id]);
+    }
+    for (const id of untick) {
+      await c.q('UPDATE staff_row SET included=false WHERE id=$1', [id]);
     }
     await c.q(
       'INSERT INTO sync_run (id,event_id,location_id,status,detail) VALUES ($1,$2,$3,$4,$5)',
@@ -565,6 +570,8 @@ export async function importTimecardAction(fd: FormData) {
     guessedTotal: guessed.length,
     multiShift,
     skippedOtherDate: parsed.skippedOtherDate,
+    skippedNoClockOut: parsed.skippedNoClockOut,
+    unticked: untick.length,
     columns: parsed.columns,
     format: parsed.format,
     eventDate,
