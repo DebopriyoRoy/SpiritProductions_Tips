@@ -302,10 +302,17 @@ export async function addStaffAction(fd: FormData) {
   if (!SECTIONS.includes(section as Section)) {
     throw new Error(`Unknown section: ${section}`);
   }
+  // Extra Help is someone brought in off the rosters for the night, so the
+  // sheet has to say why. The form asks for it; this stops a blank one.
+  const reason = String(fd.get('reason') ?? '').trim();
+  if (section === 'EXTRA_HELP' && !reason) {
+    throw new Error('Extra Help needs a reason');
+  }
   await q(
-    `INSERT INTO staff_row (id,event_id,name,section,hours,included,sort)
-     VALUES ($1,$2,$3,$4,$5,true,500)`,
-    [uid(), eventId, name, section, Number(fd.get('hours') ?? 0)]);
+    `INSERT INTO staff_row (id,event_id,name,section,hours,included,note,sort)
+     VALUES ($1,$2,$3,$4,$5,true,$6,500)`,
+    [uid(), eventId, name, section, Number(fd.get('hours') ?? 0),
+     section === 'EXTRA_HELP' ? reason : '']);
   revalidatePath(`/events/${eventId}`);
 }
 

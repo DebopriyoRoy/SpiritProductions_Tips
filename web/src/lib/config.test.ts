@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  SHOW_TYPES, NAME_ALIASES, CAST, getShowTypeForLocation,
+  SHOW_TYPES, NAME_ALIASES, CAST, getShowTypeForLocation, LOCATIONS,
 } from './config';
 import { nameKey } from './timecardImport';
 
@@ -172,7 +172,7 @@ describe('a venue that staffs a section from its own team', () => {
   /** Narrowing still has to hold: ACC runs no 50/50, no office and no cast. */
   it('keeps the venue narrowing it already did', () => {
     const acc = getShowTypeForLocation('public', 'acc');
-    expect(acc.sections).toEqual(['BAR', 'SERVICE', 'KITCHEN']);
+    expect(acc.sections).toEqual(['BAR', 'SERVICE', 'KITCHEN', 'EXTRA_HELP']);
     expect(acc.hasCast).toBe(false);
     expect(acc.roster.FIFTY_FIFTY).toBeUndefined();
     expect(acc.roster.OFFICE).toBeUndefined();
@@ -211,5 +211,19 @@ describe("the 12 Sep 2026 ACC timecard", () => {
     expect(nameKey('Al-Lahut, Svitlana')).not.toBe(nameKey('AL-Lahout Svitlana'));
     const aliases = NAME_ALIASES['AL-Lahout Svitlana'] ?? [];
     expect(aliases.map(nameKey)).toContain(nameKey('Al-Lahut, Svitlana'));
+  });
+});
+
+/** Someone brought in off the rosters can be added on any show night. */
+describe('Extra Help', () => {
+  it('is offered on every show at every venue, but never seeded', () => {
+    for (const loc of LOCATIONS) {
+      for (const id of loc.showTypeIds) {
+        const show = getShowTypeForLocation(id, loc.id);
+        if (show.screechOnly) continue;
+        expect(show.sections, `${id} at ${loc.id}`).toContain('EXTRA_HELP');
+        expect(show.roster.EXTRA_HELP ?? []).toEqual([]);
+      }
+    }
   });
 });

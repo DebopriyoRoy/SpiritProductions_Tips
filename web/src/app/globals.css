@@ -261,6 +261,7 @@ input[type="checkbox"] { width: auto; accent-color: var(--accent);
 .g2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .g3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
 .g4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.g5 { grid-template-columns: repeat(5, minmax(0,1fr)); }
 .row-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 .pill {
@@ -330,11 +331,11 @@ code {
 
 /* ---------- responsive ---------- */
 @media (max-width: 860px) {
-  .g3, .g4 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .g3, .g4, .g5 { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 620px) {
   .wrap { padding-inline: 16px; }
-  .g2, .g3, .g4 { grid-template-columns: 1fr; }
+  .g2, .g3, .g4, .g5 { grid-template-columns: 1fr; }
   .figures.stick { margin-inline: -16px; }
   /* keep the pinned strip shallow on a phone; the rates stay on the sheet */
   .figures.stick .fig .s { display: none; }

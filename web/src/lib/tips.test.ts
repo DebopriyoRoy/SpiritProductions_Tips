@@ -595,3 +595,72 @@ describe('the admin fee', () => {
     expect(run().distributedCents).toBe(run().totalCents);
   });
 });
+
+/**
+ * Office hours set to 0 on the night turns the fixed block off: each office
+ * person is paid on their own hours. Bridget at 4.5 hours is paid for 4.5,
+ * not for a share of 6.
+ */
+describe('office hours of 0', () => {
+  const rules = { castSharePercent: 50, officeHours: 0, oddCentTo: 'staff' as const };
+  const base = {
+    gratuityCents: 0, cashTipsCents: 0, squareTipsCents: 0,
+    totalOverrideCents: toCents(1000), cast: [], rules,
+  };
+  const staff = [
+    { id: 'b1', name: 'Bar One', section: 'BAR' as const, hours: 10, included: true },
+    { id: 'o1', name: 'Hillier Bridget', section: 'OFFICE' as const, hours: 4.5, included: true },
+    { id: 'o2', name: 'Pasechniuk Yana', section: 'OFFICE' as const, hours: 2, included: true },
+  ];
+
+  it('pays each office person on their own hours', () => {
+    const r = calculate({ ...base, staff });
+    const bridget = r.staff.find((s) => s.id === 'o1')!;
+    expect(bridget.hours).toBe(4.5);
+    expect(r.staff.find((s) => s.id === 'o2')!.hours).toBe(2);
+    expect(r.sectionTotals.find((t) => t.section === 'OFFICE')!.hours).toBe(6.5);
+    // 50000 staff cents over 10 + 4.5 + 2 = 16.5 hours.
+    expect(bridget.amountCents).toBe(Math.round((50000 * 4.5) / 16.5));
+    expect(r.staffHoursTotal).toBe(16.5);
+    expect(r.reconciliationCents).toBe(0);
+  });
+
+  it('pays the office nothing extra when nobody worked it, and holds nothing', () => {
+    const idle = staff.map((s) => s.section === 'OFFICE' ? { ...s, hours: 0 } : s);
+    const r = calculate({ ...base, staff: idle });
+    expect(r.unallocatedStaffCents).toBe(0);
+    expect(r.staff.find((s) => s.id === 'b1')!.amountCents).toBe(50000);
+    expect(r.warnings.join(' ')).not.toMatch(/office block/i);
+  });
+
+  it('still uses the fixed block when office hours is above 0', () => {
+    const r = calculate({ ...base, rules: { ...rules, officeHours: 6 }, staff });
+    expect(r.staff.find((s) => s.id === 'o1')!.hours).toBe(3);
+  });
+});
+
+/** Extra Help shares the staff pool by hours, like any other section. */
+describe('Extra Help', () => {
+  const r = calculate({
+    gratuityCents: 0, cashTipsCents: 0, squareTipsCents: 0,
+    totalOverrideCents: toCents(1000), cast: [],
+    rules: { castSharePercent: 50, officeHours: 0, oddCentTo: 'staff' },
+    staff: [
+      { id: 'b1', name: 'Bar One', section: 'BAR', hours: 6, included: true },
+      { id: 'x1', name: 'Pat Helper', section: 'EXTRA_HELP', hours: 4,
+        included: true, note: 'covering a sick server' },
+    ],
+  });
+
+  it('pays them on their hours at the same rate as everyone else', () => {
+    const x = r.staff.find((s) => s.id === 'x1')!;
+    expect(x.amountCents).toBe(20000);
+    expect(r.staff.find((s) => s.id === 'b1')!.amountCents).toBe(30000);
+    expect(r.sectionTotals.find((t) => t.section === 'EXTRA_HELP'))
+      .toEqual({ section: 'EXTRA_HELP', hours: 4, amountCents: 20000 });
+  });
+
+  it('carries the reason through to the result', () => {
+    expect(r.staff.find((s) => s.id === 'x1')!.note).toBe('covering a sick server');
+  });
+});

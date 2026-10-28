@@ -7,7 +7,8 @@
  */
 import { Cents, allocateByWeight, splitPool, toCents } from './money';
 
-export type Section = 'BAR' | 'SERVICE' | 'FIFTY_FIFTY' | 'KITCHEN' | 'OFFICE';
+export type Section =
+  'BAR' | 'SERVICE' | 'FIFTY_FIFTY' | 'KITCHEN' | 'OFFICE' | 'EXTRA_HELP';
 
 /**
  * The value the "add someone" form sends to mean "put them in the cast".
@@ -26,6 +27,7 @@ export const SECTION_LABEL: Record<Section, string> = {
   FIFTY_FIFTY: '50/50',
   KITCHEN: 'Kitchen',
   OFFICE: 'Office / reservations',
+  EXTRA_HELP: 'Extra Help',
 };
 
 /** Bar and Service are reported as one combined section on the sheet. */
@@ -50,6 +52,7 @@ export interface StaffEntry {
   hours: number;
   /** Excluded rows stay visible with a reason, never deleted. */
   included: boolean;
+  /** Why a row was excluded, or for Extra Help, why they were brought in. */
   note?: string;
   /** Hand-set payout. null means "work it out from the hours". */
   pinnedCents?: Cents | null;
@@ -58,7 +61,10 @@ export interface StaffEntry {
 export interface RuleSet {
   /** Percentage of the total going to Cast & Musicians. */
   castSharePercent: number;
-  /** Fixed hours credited to the Office section, split across its members. */
+  /**
+   * Fixed hours credited to the Office section, split across its members.
+   * 0 means no fixed block: each office person is paid on their own hours.
+   */
   officeHours: number;
   /** Who gets the extra cent when the split is not exactly representable. */
   oddCentTo: 'cast' | 'staff';
@@ -184,6 +190,7 @@ export interface CastPayout extends Payout {
 export interface StaffPayout extends Payout {
   section: Section;
   hours: number;
+  note: string;
 }
 
 export interface Result {
@@ -301,6 +308,9 @@ const pinOf = (active: boolean, pinned: Cents | null | undefined) =>
  * timecard says those people clocked — overtime included — does not change
  * it: the block is the office's share of the night, not a record of time.
  *
+ * Setting the night's office hours to 0 turns the block off: each office
+ * person is then paid on their own hours, like every other section.
+ *
  * Returns hours per row index, or undefined for rows this does not govern,
  * so the rest of the engine can go on reading each row's own hours.
  */
@@ -308,6 +318,7 @@ function officeHoursByRow(
   staff: StaffEntry[], officeHours: number,
 ): (number | undefined)[] {
   const out: (number | undefined)[] = staff.map(() => undefined);
+  if (officeHours <= 0) return out;
   const manned = staff
     .map((s, i) => ({ s, i }))
     .filter(({ s }) => s.section === 'OFFICE' && s.included && s.hours > 0);
@@ -316,7 +327,7 @@ function officeHoursByRow(
     .filter(({ s }) => s.section === 'OFFICE')) {
     out[i] = 0;
   }
-  if (!manned.length || officeHours <= 0) return out;
+  if (!manned.length) return out;
 
   // Split in hundredths so the block totals exactly the hours set, however
   // many people share it: 6 hours between 4 is 1.50 each, between 7 is
@@ -394,6 +405,7 @@ export function calculate(input: EventInput): Result {
   // The rule set fixes the office at 6 hours. Whatever the timecard says
   // people actually clocked, overtime included, those 6 hours are the share
   // the office gets, divided equally between whoever is ticked as working.
+  // At 0 there is no block, and the office is paid on its own hours.
   const officeHours = officeHoursByRow(input.staff, rules.officeHours);
 
   // ---- Staff: per hour, one rate across all sections ----
@@ -432,6 +444,7 @@ export function calculate(input: EventInput): Result {
     name: s.name,
     section: s.section,
     hours: officeHours[i] ?? s.hours,
+    note: s.note ?? '',
     amountCents: staffAmounts[i],
     calculatedCents: staffBaselineAll[i],
     pinned: staffPins[i] != null,
@@ -470,7 +483,8 @@ export function calculate(input: EventInput): Result {
   }
 
   // ---- Section rollups ----
-  const sections: Section[] = ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'];
+  const sections: Section[] =
+    ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE', 'EXTRA_HELP'];
   const sectionTotals = sections.map((section) => {
     const rows = staff.filter((s) => s.section === section);
     return {

@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { CAST_SECTION } from '@/lib/tips';
 
+const EXTRA_HELP = 'EXTRA_HELP';
+
 /**
  * Adds somebody the roster does not list.
  *
@@ -10,6 +12,9 @@ import { CAST_SECTION } from '@/lib/tips';
  * the cast pool per head, a staff member is paid for hours — so the third
  * field has to change with the choice. Leaving it as "Hours" and quietly
  * ignoring the number for cast would look like it had been recorded.
+ *
+ * Extra Help is paid on hours like any staff section, but the person is on
+ * no roster, so it also asks why they were brought in.
  */
 export function AddPerson({
   sections, hasCast, formId,
@@ -20,9 +25,10 @@ export function AddPerson({
 }) {
   const [section, setSection] = useState(sections[0]?.value ?? '');
   const isCast = section === CAST_SECTION;
+  const isExtra = section === EXTRA_HELP;
 
   return (
-    <div className="grid g4">
+    <div className={`grid ${isExtra ? 'g5' : 'g4'}`}>
       <div>
         <label className="f" htmlFor="newName">Name</label>
         <input id="newName" name="name" type="text" form={formId} required />
@@ -41,6 +47,14 @@ export function AddPerson({
           )}
         </select>
       </div>
+      {isExtra && (
+        <div>
+          <label className="f" htmlFor="newReason">Reason</label>
+          <input id="newReason" name="reason" type="text" form={formId}
+                 required placeholder="e.g. covering a sick server" />
+          <p className="sub addhint">Why they were added for the night.</p>
+        </div>
+      )}
       <div>
         <label className="f" htmlFor="newAmount">
           {isCast ? 'Share' : 'Hours'}

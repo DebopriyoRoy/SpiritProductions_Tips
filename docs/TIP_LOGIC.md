@@ -118,6 +118,15 @@ Office/reservations receives a **flat 6.00 hours every show**, split 1.50 each
 across four office staff. No timecard produces these hours — it is a standing
 administrative share, and it dilutes everyone else's rate by design.
 
+Setting a night's **Office hours to 0** turns the fixed block off. Each office
+person is then paid on the hours entered against them, like any other
+section: Bridget Hillier at 4.50 h is paid for 4.50 h, not a share of 6.
+
+**Extra Help** is a section for someone brought in off the rosters for one
+night. Adding them asks for a reason, which is shown on the night and in its
+Excel. They are paid on their hours from the same staff pool, at the same rate
+as everyone else.
+
 ## 6. Rounding — the detail that actually matters
 
 **The rate is never rounded.** Each person's amount is computed from the full
