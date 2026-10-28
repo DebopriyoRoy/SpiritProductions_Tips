@@ -406,7 +406,8 @@ export default async function EventPage({
               <div>
                 <label className="f" htmlFor="officeHours">Office hours</label>
                 <input id="officeHours" className="num" name="officeHours"
-                       type="number" step="0.01" defaultValue={event.office_hours} />
+                       type="number" step="0.01" min="0" defaultValue={event.office_hours} />
+                <p className="sub addhint">0 pays the office on their own hours.</p>
               </div>
               <div>
                 <label className="f" htmlFor="oddCentTo">Odd cent to</label>
@@ -558,7 +559,20 @@ export default async function EventPage({
                       {rows.filter((x) => x.hours > 0).length} of {rows.length} worked
                     </span>
                   </h3>
-                  {section === 'OFFICE' && (
+                  {section === 'OFFICE' && event.office_hours <= 0 && (
+                    <p className="sub" style={{ margin: '0 0 8px' }}>
+                      Office hours is 0, so there is no fixed block: everyone
+                      here is paid on the hours entered against them, like any
+                      other section.
+                    </p>
+                  )}
+                  {section === 'EXTRA_HELP' && (
+                    <p className="sub" style={{ margin: '0 0 8px' }}>
+                      People brought in off the rosters for the night. They
+                      share the staff pool by their hours, like everyone else.
+                    </p>
+                  )}
+                  {section === 'OFFICE' && event.office_hours > 0 && (
                     <p className="sub" style={{ margin: '0 0 8px' }}>
                       A fixed {event.office_hours.toFixed(2)} hours for the whole
                       section, split equally between whoever worked
@@ -573,7 +587,8 @@ export default async function EventPage({
                     <thead>
                       <tr>
                         <th>Name</th><th className="num">Hours</th>
-                        <th className="num">In</th><th>Note</th>
+                        <th className="num">In</th>
+                        <th>{section === 'EXTRA_HELP' ? 'Reason' : 'Note'}</th>
                         <th className="num">Amount</th><th></th>
                       </tr>
                     </thead>
@@ -590,7 +605,8 @@ export default async function EventPage({
                             <td className="num" style={{ width: 100 }}>
                               {/* The row's own hours, not the payout's. For the
                                   office those differ — the payout is the fixed
-                                  block's equal share — and rendering the payout
+                                  block's equal share, unless office hours is
+                                  0 — and rendering the payout
                                   would save it back over what was clocked. */}
                               <input className="num" name={`staff_hours_${s.id}`} type="number"
                                      step="0.01" min="0" defaultValue={src.hours}
@@ -604,7 +620,8 @@ export default async function EventPage({
                             <td style={{ minWidth: 160 }}>
                               <input name={`staff_note_${s.id}`} type="text"
                                      defaultValue={src.note}
-                                     placeholder={!src.included && src.hours > 0 ? 'reason required' : ''}
+                                     placeholder={section === 'EXTRA_HELP' ||
+                                       (!src.included && src.hours > 0) ? 'reason required' : ''}
                                      aria-label={`${s.name} note`} />
                             </td>
                             <td className="num" style={{ width: 150 }}>

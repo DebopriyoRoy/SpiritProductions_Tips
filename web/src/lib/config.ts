@@ -123,7 +123,7 @@ export const SHOW_TYPES: Record<string, ShowType> = {
       '(Bar & Service + 50/50 + Kitchen + 6 office hours).',
     rules: { castSharePercent: 50, officeHours: 6, oddCentTo: 'staff', adminFeePercent: 5 },
     hasCast: true,
-    sections: ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'],
+    sections: ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE', 'EXTRA_HELP'],
     hasContractService: false,
     roster: {
       BAR: SPIRIT_BARTENDERS, SERVICE: SERVERS,
@@ -140,7 +140,7 @@ export const SHOW_TYPES: Record<string, ShowType> = {
       '(Bar & Service + 50/50 + Kitchen + 6 office hours).',
     rules: { castSharePercent: 50, officeHours: 6, oddCentTo: 'staff', adminFeePercent: 5 },
     hasCast: true,
-    sections: ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'],
+    sections: ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE', 'EXTRA_HELP'],
     hasContractService: true,
     roster: {
       BAR: SPIRIT_BARTENDERS, SERVICE: SERVERS,
@@ -160,7 +160,7 @@ export const SHOW_TYPES: Record<string, ShowType> = {
       'No cast share, no 50/50, no office hours.',
     rules: { castSharePercent: 0, officeHours: 0, oddCentTo: 'staff', adminFeePercent: 5 },
     hasCast: false,
-    sections: ['BAR', 'SERVICE', 'KITCHEN'],
+    sections: ['BAR', 'SERVICE', 'KITCHEN', 'EXTRA_HELP'],
     hasContractService: true,
     roster: { BAR: ACC_BARTENDERS, SERVICE: SERVERS, KITCHEN: KITCHEN },
   },
@@ -239,7 +239,7 @@ export const LOCATIONS: LocationConfig[] = [
     // ACC runs no 50/50 float, keeps no reservations office, and pays no
     // cast — so a Public Show here is a narrower sheet than the same show
     // type at Spirit, which is unaffected by this.
-    sections: ['BAR', 'SERVICE', 'KITCHEN'],
+    sections: ['BAR', 'SERVICE', 'KITCHEN', 'EXTRA_HELP'],
     hasCast: false,
     // The bar here is ACC's own team, not Spirit's. Before this, a public
     // show at ACC seeded the Spirit bartenders, so an ACC-only bartender
@@ -366,4 +366,4 @@ export function withAdminFee(formula: string, adminFeePercent: number): string {
 }
 
 export const SECTIONS: Section[] =
-  ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'];
+  ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE', 'EXTRA_HELP'];

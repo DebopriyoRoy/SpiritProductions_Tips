@@ -73,6 +73,7 @@ const SECTION_FILL: Record<Section, Fill> = {
   FIFTY_FIFTY: { theme: 3, tint: 0.5998718222602009 },
   KITCHEN: { theme: 5, tint: 0.5998718222602009 },
   OFFICE: { theme: 6, tint: 0.7998901333658864 },
+  EXTRA_HELP: { theme: 7, tint: 0.7998901333658864 },
 } as Record<Section, Fill>;
 
 function shade(row: ExcelJS.Row, fill: Fill, cols: number[]) {
@@ -238,12 +239,14 @@ export function addNightSheet(
     const rows = r.staff.filter((s) => s.section === section);
     if (rows.length === 0) continue;
     title(SECTION_LABEL[section]);
-    header(['Name', 'Hours', 'Hand-set', '', 'Amount']);
+    // Extra Help is on no roster, so the sheet carries why they were there.
+    const extra = section === 'EXTRA_HELP';
+    header(['Name', 'Hours', 'Hand-set', extra ? 'Reason' : '', 'Amount']);
     for (const s of rows) {
       const row = ws.addRow([
         s.name, s.hours,
         s.pinned ? `set by hand (pool: ${fmt(s.calculatedCents)})` : '',
-        '', s.amountCents / 100,
+        extra ? s.note : '', s.amountCents / 100,
       ]);
       row.font = { name: 'Arial', size: 10 };
       row.getCell(2).numFmt = HOURS;
