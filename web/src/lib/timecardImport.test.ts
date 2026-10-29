@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
 import {
   parseTimecard, parseDelimited, sniffFormat, toISODate, toHours,
-  nameKey, sectionFromJobTitle, suggestName, rowsToUntick, HOURS_CAP,
+  nameKey, sectionFromJobTitle, suggestName, rowsToUntick, tickAfterSave, HOURS_CAP,
 } from './timecardImport';
 
 const buf = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
@@ -321,5 +321,22 @@ describe('unticking the roster on import', () => {
 
   it('keeps anyone with hand-entered hours ticked', () => {
     expect(rowsToUntick(staff, new Set())).toEqual(['a', 'b']);
+  });
+});
+
+describe('ticking follows the hours on save', () => {
+  it('ticks somebody as soon as hours are typed against them', () => {
+    expect(tickAfterSave(0, 7.38, false)).toBe(true);
+  });
+
+  it('unticks anyone at 0 hours, whatever the box said', () => {
+    expect(tickAfterSave(5, 0, true)).toBe(false);
+    expect(tickAfterSave(0, 0, true)).toBe(false);
+  });
+
+  it('respects a deliberate untick of somebody who has hours', () => {
+    expect(tickAfterSave(4.88, 4.88, false)).toBe(false);
+    expect(tickAfterSave(4.88, 5, false)).toBe(false);
+    expect(tickAfterSave(4.88, 4.88, true)).toBe(true);
   });
 });

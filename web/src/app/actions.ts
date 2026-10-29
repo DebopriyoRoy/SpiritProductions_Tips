@@ -11,7 +11,7 @@ import { requireLocation, requireUser, destroySession, isAdmin } from '@/lib/aut
 import { seedForeverCountry } from '@/lib/demo';
 import { SECTION_LABEL, CAST_SECTION, type Section } from '@/lib/tips';
 import {
-  parseTimecard, nameKey, sectionFromJobTitle, suggestName, rowsToUntick, HOURS_CAP,
+  parseTimecard, nameKey, sectionFromJobTitle, suggestName, rowsToUntick, tickAfterSave, HOURS_CAP,
 } from '@/lib/timecardImport';
 import { loadEvent } from '@/lib/service';
 import { isoDate } from '@/lib/db';
@@ -131,6 +131,8 @@ export async function saveEventAction(fd: FormData) {
       ],
     );
 
+    /** Hours before and after this save, so the tick can follow them. */
+    const hoursSaved = new Map<string, { prev: number; next: number }>();
     for (const [key, value] of fd.entries()) {
       let m = key.match(/^cast_ratio_(.+)$/);
       if (m) {
@@ -145,6 +147,7 @@ export async function saveEventAction(fd: FormData) {
           'SELECT hours, source FROM staff_row WHERE id=$1 AND event_id=$2',
           [id, eventId]))[0];
         const next = num(value);
+        hoursSaved.set(id, { prev: Number(prev?.hours ?? 0), next });
         const edited = prev && Math.abs(prev.hours - next) > 0.001
           && prev.source === 'square';
         await c.q(
@@ -247,11 +250,12 @@ export async function saveEventAction(fd: FormData) {
       await c.q('UPDATE cast_row SET worked=$1 WHERE id=$2',
         [fd.has(`cast_worked_${id}`), id]);
     }
-    const staffIds = await c.q<{ id: string }>(
-      'SELECT id FROM staff_row WHERE event_id=$1', [eventId]);
-    for (const { id } of staffIds) {
+    const staffIds = await c.q<{ id: string; hours: number }>(
+      'SELECT id, hours FROM staff_row WHERE event_id=$1', [eventId]);
+    for (const { id, hours } of staffIds) {
+      const h = hoursSaved.get(id) ?? { prev: Number(hours), next: Number(hours) };
       await c.q('UPDATE staff_row SET included=$1 WHERE id=$2',
-        [fd.has(`staff_incl_${id}`), id]);
+        [tickAfterSave(h.prev, h.next, fd.has(`staff_incl_${id}`)), id]);
     }
     // Only hosts whose name was on the form: a save from a page that did not
     // render them must not clear their helper flag.

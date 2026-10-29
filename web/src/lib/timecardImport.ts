@@ -374,6 +374,20 @@ export function rowsToUntick(
     .map((r) => r.id);
 }
 
+/**
+ * Whether a staff row is ticked after a save. Hours decide it when they cross
+ * zero: typing hours against somebody ticks them, and 0 hours unticks them.
+ * Otherwise the box is what the manager left it as, so somebody who has hours
+ * can still be deliberately left out (with a reason).
+ */
+export function tickAfterSave(
+  prevHours: number, nextHours: number, boxChecked: boolean,
+): boolean {
+  if (!(nextHours > 0)) return false;
+  if (!(prevHours > 0)) return true;
+  return boxChecked;
+}
+
 /** Kept so existing callers and tests that name the workbook path still work. */
 export const parseTimecardWorkbook = parseTimecard;
 
