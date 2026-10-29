@@ -50,7 +50,11 @@ export async function seedForeverCountry(): Promise<SeedResult> {
   // rather than inserting duplicate rows.
   for (const [name, section, hours] of HOURS) {
     const row = loaded.staff.find((s) => s.name === name && s.section === section);
-    if (row) await q('UPDATE staff_row SET hours=$1 WHERE id=$2', [hours, row.id]);
+    // The roster starts unticked; whoever worked is ticked with their hours.
+    if (row) {
+      await q('UPDATE staff_row SET hours=$1, included=$2 WHERE id=$3',
+        [hours, hours > 0, row.id]);
+    }
   }
   return { id, created: true };
 }

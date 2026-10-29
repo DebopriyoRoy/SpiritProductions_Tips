@@ -161,6 +161,10 @@ export default async function EventPage({
               ` ${String(report.capped)} trimmed to the ${String(report.cap)}-hour cap.`}
             {Number(report.skippedOtherDate) > 0 &&
               ` ${String(report.skippedOtherDate)} row(s) were for other dates and ignored.`}
+            {Number(report.skippedNoClockOut) > 0 &&
+              ` ${String(report.skippedNoClockOut)} row(s) had no clock-out and were left out.`}
+            {Number(report.unticked) > 0 &&
+              ` ${String(report.unticked)} roster ${Number(report.unticked) === 1 ? 'person' : 'people'} with no shift unticked.`}
             {Number(report.unmatchedTotal) > 0 && (
               <> Not on this roster, so left alone:{' '}
                 <em>{(report.unmatched as string[]).join(', ')}</em>

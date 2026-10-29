@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
 import {
   parseTimecard, parseDelimited, sniffFormat, toISODate, toHours,
-  nameKey, sectionFromJobTitle, suggestName, HOURS_CAP,
+  nameKey, sectionFromJobTitle, suggestName, rowsToUntick, tickAfterSave, HOURS_CAP,
 } from './timecardImport';
 
 const buf = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
@@ -284,5 +284,59 @@ describe('suggesting a near-miss name', () => {
 
   it('never suggests one real person for another', () => {
     expect(suggestName('Pynn Morgan', ['Pynn Jackie'])).toBeNull();
+  });
+});
+
+describe('only finished shifts count', () => {
+  const OUT = [
+    'Team Member,Job Title,Clock In,Clock Out,Regular Hours',
+    '"Pynn, Jackie",Server,09/24/2026 17:00,09/24/2026 23:00,6',
+    '"Gordon, Daniel",Server,09/24/2026 18:00,,0',
+    '"Hillier, Bridget",Office,09/24/2026 16:00,09/24/2026 16:00,0',
+  ].join('\n');
+
+  it('leaves out a shift with no clock-out, and says how many', async () => {
+    const r = await parseTimecard(buf(OUT), '2026-09-24', 'timecard.csv');
+    expect(r.rows.map((x) => x.name)).toEqual(['Pynn, Jackie']);
+    expect(r.skippedNoClockOut).toBe(1);
+  });
+
+  it('leaves out a row with 0 hours', async () => {
+    const r = await parseTimecard(buf(OUT), '2026-09-24', 'timecard.csv');
+    expect(r.rows.some((x) => x.name.startsWith('Hillier'))).toBe(false);
+  });
+});
+
+describe('unticking the roster on import', () => {
+  const staff = [
+    { id: 'a', hours: 0, included: true },    // on the roster, no shift
+    { id: 'b', hours: 0, included: true },    // clocked tonight
+    { id: 'c', hours: 3, included: true },    // hours typed by hand
+    { id: 'd', hours: 0, included: false },   // already unticked
+  ];
+
+  it('unticks only rostered people the timecard did not clock', () => {
+    expect(rowsToUntick(staff, new Set(['b']))).toEqual(['a']);
+  });
+
+  it('keeps anyone with hand-entered hours ticked', () => {
+    expect(rowsToUntick(staff, new Set())).toEqual(['a', 'b']);
+  });
+});
+
+describe('ticking follows the hours on save', () => {
+  it('ticks somebody as soon as hours are typed against them', () => {
+    expect(tickAfterSave(0, 7.38, false)).toBe(true);
+  });
+
+  it('unticks anyone at 0 hours, whatever the box said', () => {
+    expect(tickAfterSave(5, 0, true)).toBe(false);
+    expect(tickAfterSave(0, 0, true)).toBe(false);
+  });
+
+  it('respects a deliberate untick of somebody who has hours', () => {
+    expect(tickAfterSave(4.88, 4.88, false)).toBe(false);
+    expect(tickAfterSave(4.88, 5, false)).toBe(false);
+    expect(tickAfterSave(4.88, 4.88, true)).toBe(true);
   });
 });
