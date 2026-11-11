@@ -42,6 +42,10 @@ const EXPECTED: Record<string, string[]> = {
     'id', 'event_id', 'name', 'section', 'hours', 'included', 'note',
     'square_timecard_id', 'source', 'overridden', 'sort', 'pinned_cents',
   ],
+  roster_member: [
+    'id', 'name', 'section', 'venue', 'technical', 'active', 'sort', 'source',
+    'created_at', 'removed_at',
+  ],
   sync_run: ['id', 'event_id', 'location_id', 'started_at', 'status', 'detail'],
   password_reset: [
     'id', 'user_id', 'code_hash', 'expires_at', 'attempts', 'used_at',

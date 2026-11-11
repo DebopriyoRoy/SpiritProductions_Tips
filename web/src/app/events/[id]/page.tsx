@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import {
-  getLocation, LOCATIONS, SECTIONS, getShowTypeForLocation, CAST, everyone,
-  withAdminFee,
+  getLocation, LOCATIONS, SECTIONS, getShowTypeForLocation, withAdminFee,
 } from '@/lib/config';
+import { rosterFor, everyoneActive } from '@/lib/roster';
 import { loadEvent, toEngineInput, screechSeparate } from '@/lib/service';
 import { calculate, SECTION_LABEL, Section } from '@/lib/tips';
 import { fmt } from '@/lib/money';
@@ -39,10 +39,6 @@ export const dynamic = 'force-dynamic';
  * was hand-set. The pin-free figure appears only on a pinned row, as the
  * "was" note, where it is the useful comparison.
  */
-/** True for the seeded company, false for anyone added by hand. */
-const onCastRoster = (name: string) =>
-  CAST.some((c) => nameKey(c.split('|')[0]) === nameKey(name));
-
 function AmountCell({
   name, row, label,
 }: {
@@ -97,6 +93,11 @@ export default async function EventPage({
   // Narrowed by venue: ACC runs no 50/50, no office and no cast, even on a
   // show type that does elsewhere.
   const show = getShowTypeForLocation(event.show_type_id, loc.id);
+  // The team list: its cast stay on the sheet and are unticked rather than
+  // removed, and everyone on it can be picked as a screech-in host.
+  const [team, everyone] = await Promise.all([rosterFor(loc.id), everyoneActive()]);
+  const castKeys = new Set(team.cast.map((c) => nameKey(c.name)));
+  const onCastRoster = (name: string) => castKeys.has(nameKey(name));
   const r = calculate(toEngineInput(event, cast, staff, extras));
   const screechOnly = !!show.screechOnly;
   // Where screech-ins are kept as nights of their own, a show's page does not
@@ -660,7 +661,7 @@ export default async function EventPage({
               </span>
             </div>
 
-            <h3>Add someone not on the roster</h3>
+            <h3>Add someone not on the sheet</h3>
             <AddPerson
               formId="add-staff"
               hasCast={show.hasCast}
@@ -863,7 +864,7 @@ export default async function EventPage({
           </div>}
 
           <datalist id="everyone">
-            {everyone().map((n) => <option key={n} value={n} />)}
+            {everyone.map((n) => <option key={n} value={n} />)}
           </datalist>
         </form>
 
