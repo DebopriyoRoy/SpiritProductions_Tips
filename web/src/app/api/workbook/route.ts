@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       { status: 404 });
   }
   for (const t of totals) {
-    addPayoutSheet(wb, t.name, t.columns, payoutRosterFor(t.locationId));
+    addPayoutSheet(wb, t.name, t.columns, await payoutRosterFor(t.locationId));
   }
 
   // Named as the office names it: Tips_09-08to09-19_.xlsx

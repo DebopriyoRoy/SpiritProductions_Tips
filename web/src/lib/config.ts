@@ -79,6 +79,30 @@ export const CAST = [
   'Stamp, Paul (Boomer)', 'Williams John', 'Wilson, Amy',
 ];
 
+/**
+ * The team as first written here, used once to fill the database's roster
+ * table on a database that has none. From then on the roster lives in the
+ * database and is kept on the Team page: these lists are only the starting
+ * point, and editing them changes nothing on a database already seeded.
+ *
+ * The venue says where a section is staffed from that list: '' is every
+ * venue. Only the bar differs, since ACC pours with its own bartenders.
+ */
+export const SEED_ROSTER: {
+  name: string; section: Section | 'CAST'; venue: string; technical: boolean;
+}[] = [
+  ...CAST.map((raw) => {
+    const [name, tech] = raw.split('|');
+    return { name, section: 'CAST' as const, venue: '', technical: !!tech };
+  }),
+  ...SPIRIT_BARTENDERS.map((name) => ({ name, section: 'BAR' as const, venue: 'spirit', technical: false })),
+  ...ACC_BARTENDERS.map((name) => ({ name, section: 'BAR' as const, venue: 'acc', technical: false })),
+  ...SERVERS.map((name) => ({ name, section: 'SERVICE' as const, venue: '', technical: false })),
+  ...FIFTY_FIFTY.map((name) => ({ name, section: 'FIFTY_FIFTY' as const, venue: '', technical: false })),
+  ...KITCHEN.map((name) => ({ name, section: 'KITCHEN' as const, venue: '', technical: false })),
+  ...OFFICE.map((name) => ({ name, section: 'OFFICE' as const, venue: '', technical: false })),
+];
+
 export interface ShowType {
   id: string;
   label: string;

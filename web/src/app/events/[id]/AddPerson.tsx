@@ -6,7 +6,8 @@ import { CAST_SECTION } from '@/lib/tips';
 const EXTRA_HELP = 'EXTRA_HELP';
 
 /**
- * Adds somebody the roster does not list.
+ * Adds somebody the sheet does not list, and by default puts them on the team
+ * list too, so the next show is seeded with them.
  *
  * Cast and staff are paid on different bases — a cast member takes a share of
  * the cast pool per head, a staff member is paid for hours — so the third
@@ -82,6 +83,15 @@ export function AddPerson({
       <div style={{ display: 'flex', alignItems: 'flex-start' }}>
         <button className="btn ghost" type="submit" form={formId}>Add</button>
       </div>
+      {/* Extra Help is for the one night by definition, so it never joins the
+          team. Everyone else does unless this is unticked, and is then on the
+          sheet for every new show. */}
+      {!isExtra && (
+        <label className="chk addteam">
+          <input type="checkbox" name="toRoster" form={formId} defaultChecked />
+          {' '}Also add them to the team, so they are on every new show
+        </label>
+      )}
     </div>
   );
 }

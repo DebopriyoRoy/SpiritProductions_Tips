@@ -301,6 +301,23 @@ CREATE TABLE IF NOT EXISTS staff_row (
   pinned_cents       INTEGER
 );
 
+-- The team: who is seeded onto a new show, section by section. Removing
+-- someone sets active=false rather than deleting the row, so they can be put
+-- back and their past nights are untouched (those keep their own names).
+-- venue '' is every venue; otherwise the one location this row staffs.
+CREATE TABLE IF NOT EXISTS roster_member (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  section    TEXT NOT NULL,
+  venue      TEXT NOT NULL DEFAULT '',
+  technical  BOOLEAN NOT NULL DEFAULT false,
+  active     BOOLEAN NOT NULL DEFAULT true,
+  sort       INTEGER NOT NULL DEFAULT 0,
+  source     TEXT NOT NULL DEFAULT 'seed',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  removed_at TIMESTAMPTZ
+);
+
 CREATE TABLE IF NOT EXISTS sync_run (
   id          TEXT PRIMARY KEY,
   event_id    TEXT NOT NULL REFERENCES event(id) ON DELETE CASCADE,
@@ -343,6 +360,9 @@ CREATE INDEX IF NOT EXISTS idx_cast_event ON cast_row(event_id);
 -- CONFLICT, so two simultaneous page loads cannot double-seed a show.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cast_event_name ON cast_row(event_id, name);
 CREATE INDEX IF NOT EXISTS idx_staff_event ON staff_row(event_id);
+-- One row per spelling per section per venue, so seeding twice is a no-op.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_member
+  ON roster_member(section, venue, lower(name));
 CREATE INDEX IF NOT EXISTS idx_screech_event ON screech_session(event_id);
 CREATE INDEX IF NOT EXISTS idx_screech_host_session ON screech_host(session_id);
 CREATE INDEX IF NOT EXISTS idx_late_tip_event ON late_tip(event_id);

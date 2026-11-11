@@ -5,8 +5,9 @@ import { q, one, tx, uid, ensureSchema } from '@/lib/db';
 import { createEvent, syncFromSquare, screechNightFor } from '@/lib/service';
 import { toCents } from '@/lib/money';
 import {
-  getLocation, NAME_ALIASES, CAST, getShowTypeForLocation, SECTIONS,
+  getLocation, NAME_ALIASES, getShowTypeForLocation, SECTIONS,
 } from '@/lib/config';
+import { addToRoster, rosterFor, setRosterActive, type RosterSection } from '@/lib/roster';
 import { requireLocation, requireUser, destroySession, isAdmin } from '@/lib/auth';
 import { seedForeverCountry } from '@/lib/demo';
 import { SECTION_LABEL, CAST_SECTION, type Section } from '@/lib/tips';
@@ -297,6 +298,7 @@ export async function addStaffAction(fd: FormData) {
        VALUES ($1,$2,$3,$4,true,false,500)
        ON CONFLICT (event_id, name) DO NOTHING`,
       [uid(), eventId, name, num(fd.get('ratio'), 1)]);
+    await joinTeam(fd, name, CAST_SECTION, locationId);
     revalidatePath(`/events/${eventId}`);
     return;
   }
@@ -318,7 +320,58 @@ export async function addStaffAction(fd: FormData) {
      VALUES ($1,$2,$3,$4,$5,true,$6,500)`,
     [uid(), eventId, name, section, Number(fd.get('hours') ?? 0),
      section === 'EXTRA_HELP' ? reason : '']);
+  if (section !== 'EXTRA_HELP') await joinTeam(fd, name, section as Section, locationId);
   revalidatePath(`/events/${eventId}`);
+}
+
+/**
+ * Someone added on a night also joins the team list, unless the box was
+ * unticked, so they are on the sheet for every show after this one. Only the
+ * bar is kept per venue, since ACC pours with its own bartenders.
+ */
+async function joinTeam(
+  fd: FormData, name: string, section: RosterSection, locationId: string,
+) {
+  if (fd.get('toRoster') !== 'on') return;
+  await addToRoster({
+    name, section, venue: section === 'BAR' ? locationId : '', source: 'app',
+  });
+}
+
+/** Team page: put someone on the list for a section. */
+export async function addTeamMemberAction(fd: FormData) {
+  const locationId = String(fd.get('locationId'));
+  await requireLocation(locationId);
+  const name = String(fd.get('name') ?? '').trim();
+  const section = String(fd.get('section')) as RosterSection;
+  const venue = String(fd.get('venue') ?? '');
+  if (venue && !getLocation(venue)) throw new Error(`Unknown venue: ${venue}`);
+  let outcome;
+  try {
+    outcome = await addToRoster({
+      name, section, venue, technical: fd.get('technical') === 'on', source: 'app',
+    });
+  } catch (e) {
+    redirect(`/team?location=${locationId}&error=` +
+      encodeURIComponent(e instanceof Error ? e.message : 'Could not add them'));
+  }
+  revalidatePath('/team');
+  redirect(`/team?location=${locationId}&ok=${outcome}&who=${encodeURIComponent(name)}`);
+}
+
+/**
+ * Team page: someone has left, or comes back. Removing only stops them being
+ * put on new shows; every night already entered keeps them as it was.
+ */
+export async function setTeamMemberActiveAction(
+  memberId: string, active: boolean, fd: FormData,
+) {
+  const locationId = String(fd.get('locationId'));
+  await requireLocation(locationId);
+  await setRosterActive(memberId, active);
+  revalidatePath('/team');
+  redirect(`/team?location=${locationId}&ok=${active ? 'restored' : 'removed'}` +
+    `&who=${encodeURIComponent(String(fd.get('who') ?? ''))}`);
 }
 
 /**
@@ -333,8 +386,9 @@ export async function deleteCastAction(rowId: string, fd: FormData) {
   const row = await one<{ name: string }>(
     'SELECT name FROM cast_row WHERE id=$1 AND event_id=$2', [rowId, eventId]);
   if (!row) return;
-  const onRoster = CAST.some((c) => nameKey(c.split('|')[0]) === nameKey(row.name));
-  if (onRoster) throw new Error(`${row.name} is on the roster and cannot be removed`);
+  const { cast } = await rosterFor(String(fd.get('locationId')));
+  const onRoster = cast.some((c) => nameKey(c.name) === nameKey(row.name));
+  if (onRoster) throw new Error(`${row.name} is on the team list, so stays on the sheet unticked. Take them off the team on the Team page.`);
   await q('DELETE FROM cast_row WHERE id=$1 AND event_id=$2', [rowId, eventId]);
   revalidatePath(`/events/${eventId}`);
 }

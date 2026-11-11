@@ -7,9 +7,10 @@ import {
   calculate, EventInput, Result, Section, CastEntry, StaffEntry, LateTipMode,
 } from './tips';
 import {
-  getLocation, getShowTypeForLocation, CAST, showTypesFor, SECTIONS,
+  getLocation, getShowTypeForLocation, showTypesFor, SECTIONS,
   withAdminFee,
 } from './config';
+import { rosterFor } from './roster';
 import { ExportMeta, sheetNameFor, sheetNameForDate } from './xlsxExport';
 import type { PayoutRoster } from './payoutSheet';
 import { getProvider } from './square';
@@ -29,6 +30,9 @@ export async function createEvent(input: {
   const show = getShowTypeForLocation(input.showTypeId, input.locationId);
   const id = uid();
   await ensureSchema();
+  // The show type says which sections the night has; the team list says who
+  // is in them.
+  const team = await rosterFor(input.locationId);
 
   await tx(async (c) => {
     await c.q(
@@ -43,12 +47,12 @@ export async function createEvent(input: {
 
     // Private shows have no cast block at all.
     if (show.hasCast) {
-      for (const [i, raw] of CAST.entries()) {
-        const [name, tech] = raw.split('|');
+      for (const [i, { name, technical }] of team.cast.entries()) {
         await c.q(
           `INSERT INTO cast_row (id,event_id,name,ratio,worked,technical,sort)
-           VALUES ($1,$2,$3,1,false,$4,$5)`,
-          [uid(), id, name, !!tech, i],
+           VALUES ($1,$2,$3,1,false,$4,$5)
+           ON CONFLICT (event_id, name) DO NOTHING`,
+          [uid(), id, name, technical, i],
         );
       }
     }
@@ -57,7 +61,8 @@ export async function createEvent(input: {
     // it. Office included: the app must not invent who worked. The timecard
     // import ticks whoever clocked in and out.
     for (const section of show.sections) {
-      const names = show.roster[section] ?? [];
+      // Extra Help is never seeded: it is whoever was brought in on the night.
+      const names = section === 'EXTRA_HELP' ? [] : team.sections[section] ?? [];
       for (const [i, name] of names.entries()) {
         await c.q(
           `INSERT INTO staff_row (id,event_id,name,section,hours,included,sort)
@@ -89,15 +94,15 @@ async function ensureCastRows(
 ): Promise<boolean> {
   const show = getShowTypeForLocation(showTypeId, locationId);
   if (!show.hasCast) return false;
+  const { cast } = await rosterFor(locationId);
 
   await tx(async (c) => {
-    for (const [i, raw] of CAST.entries()) {
-      const [name, tech] = raw.split('|');
+    for (const [i, { name, technical }] of cast.entries()) {
       await c.q(
         `INSERT INTO cast_row (id,event_id,name,ratio,worked,technical,sort)
          VALUES ($1,$2,$3,1,false,$4,$5)
          ON CONFLICT (event_id, name) DO NOTHING`,
-        [uid(), eventId, name, !!tech, i],
+        [uid(), eventId, name, technical, i],
       );
     }
   });
@@ -380,26 +385,18 @@ export async function nightsBetween(locationId: string, from: string, to: string
 }
 
 /** Everyone a venue's rosters list, block by block, for its payout sheet. */
-export function payoutRosterFor(locationId: string): PayoutRoster {
+export async function payoutRosterFor(locationId: string): Promise<PayoutRoster> {
   const loc = getLocation(locationId)!;
   const types = showTypesFor(loc).map((t) => getShowTypeForLocation(t.id, loc.id));
   const hasCast = types.some((t) => t.hasCast);
+  // The current team. Someone removed since still gets a row wherever they
+  // were paid in the period: the sheet adds anyone with money against them.
+  const team = await rosterFor(locationId);
   return {
-    cast: hasCast
-      ? CAST.map((raw) => {
-          const [name, tech] = raw.split('|');
-          return { name, technical: !!tech };
-        })
-      : [],
+    cast: hasCast ? team.cast : [],
     sections: SECTIONS
       .filter((section) => types.some((t) => t.sections.includes(section)))
-      .map((section) => {
-        const names: string[] = [];
-        for (const t of types) {
-          for (const n of t.roster[section] ?? []) if (!names.includes(n)) names.push(n);
-        }
-        return { section, names };
-      }),
+      .map((section) => ({ section, names: [...(team.sections[section] ?? [])] })),
   };
 }
 

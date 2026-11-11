@@ -28,6 +28,9 @@ export function LocationBar({ active, user }: { active: string; user: SessionUse
             : 'No Square credentials set — timecards are sample data'}>
             {live ? 'Square connected' : 'Demo data'}
           </span>
+          {active && (
+            <Link href={`/team?location=${active}`} className="pill link">Team</Link>
+          )}
           {isAdmin(user) && <Link href="/admin" className="pill link">People</Link>}
           <span title={user.email}>{user.name || user.email}</span>
           <form action={signOutAction}>
