@@ -26,9 +26,14 @@ export interface RosterMember {
   removed_at: Date | null;
 }
 
-/** Sections a person can be on the team list for. Extra Help is never one. */
+/**
+ * Sections a person can be on the team list for. Extra Help is never one:
+ * it is for somebody brought in for a single night. Maintenance is, because
+ * the people who do it come back.
+ */
 export const ROSTER_SECTIONS: RosterSection[] =
-  [CAST_SECTION, 'BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE'];
+  [CAST_SECTION, 'BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE',
+   'MAINTENANCE'];
 
 let seeded: Promise<void> | null = null;
 

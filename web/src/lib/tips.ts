@@ -8,7 +8,8 @@
 import { Cents, allocateByWeight, splitPool, toCents } from './money';
 
 export type Section =
-  'BAR' | 'SERVICE' | 'FIFTY_FIFTY' | 'KITCHEN' | 'OFFICE' | 'EXTRA_HELP';
+  'BAR' | 'SERVICE' | 'FIFTY_FIFTY' | 'KITCHEN' | 'OFFICE' | 'MAINTENANCE'
+  | 'EXTRA_HELP';
 
 /**
  * The value the "add someone" form sends to mean "put them in the cast".
@@ -27,6 +28,7 @@ export const SECTION_LABEL: Record<Section, string> = {
   FIFTY_FIFTY: '50/50',
   KITCHEN: 'Kitchen',
   OFFICE: 'Office / reservations',
+  MAINTENANCE: 'Maintenance',
   EXTRA_HELP: 'Extra Help',
 };
 
@@ -484,7 +486,8 @@ export function calculate(input: EventInput): Result {
 
   // ---- Section rollups ----
   const sections: Section[] =
-    ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE', 'EXTRA_HELP'];
+    ['BAR', 'SERVICE', 'FIFTY_FIFTY', 'KITCHEN', 'OFFICE', 'MAINTENANCE',
+     'EXTRA_HELP'];
   const sectionTotals = sections.map((section) => {
     const rows = staff.filter((s) => s.section === section);
     return {

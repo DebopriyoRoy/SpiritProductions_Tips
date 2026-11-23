@@ -73,6 +73,7 @@ const SECTION_FILL: Record<Section, Fill> = {
   FIFTY_FIFTY: { theme: 3, tint: 0.5998718222602009 },
   KITCHEN: { theme: 5, tint: 0.5998718222602009 },
   OFFICE: { theme: 6, tint: 0.7998901333658864 },
+  MAINTENANCE: { theme: 4, tint: 0.5998718222602009 },
   EXTRA_HELP: { theme: 7, tint: 0.7998901333658864 },
 } as Record<Section, Fill>;
 

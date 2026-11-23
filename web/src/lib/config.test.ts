@@ -3,6 +3,8 @@ import {
   SHOW_TYPES, NAME_ALIASES, CAST, getShowTypeForLocation, LOCATIONS,
 } from './config';
 import { nameKey } from './timecardImport';
+import { ROSTER_SECTIONS } from './roster';
+import { SECTION_LABEL } from './tips';
 
 describe('the rosters', () => {
   const sectionsOf = (id: string) => Object.entries(SHOW_TYPES[id].roster);
@@ -172,7 +174,8 @@ describe('a venue that staffs a section from its own team', () => {
   /** Narrowing still has to hold: ACC runs no 50/50, no office and no cast. */
   it('keeps the venue narrowing it already did', () => {
     const acc = getShowTypeForLocation('public', 'acc');
-    expect(acc.sections).toEqual(['BAR', 'SERVICE', 'KITCHEN', 'EXTRA_HELP']);
+    expect(acc.sections)
+      .toEqual(['BAR', 'SERVICE', 'KITCHEN', 'MAINTENANCE', 'EXTRA_HELP']);
     expect(acc.hasCast).toBe(false);
     expect(acc.roster.FIFTY_FIFTY).toBeUndefined();
     expect(acc.roster.OFFICE).toBeUndefined();
@@ -225,5 +228,30 @@ describe('Extra Help', () => {
         expect(show.roster.EXTRA_HELP ?? []).toEqual([]);
       }
     }
+  });
+});
+
+describe('the Maintenance section', () => {
+  it('is offered on every show type that offers Extra Help', () => {
+    for (const [id, show] of Object.entries(SHOW_TYPES)) {
+      if (!show.sections.includes('EXTRA_HELP')) continue;
+      expect(show.sections, `${id} offers Extra Help but not Maintenance`)
+        .toContain('MAINTENANCE');
+    }
+  });
+
+  it('is a section a person can stay on the team for, unlike Extra Help', () => {
+    expect(ROSTER_SECTIONS).toContain('MAINTENANCE');
+    expect(ROSTER_SECTIONS).not.toContain('EXTRA_HELP');
+  });
+
+  it('seeds nobody, so it is empty until somebody is put on it', () => {
+    for (const show of Object.values(SHOW_TYPES)) {
+      expect(show.roster.MAINTENANCE ?? []).toEqual([]);
+    }
+  });
+
+  it('has a label of its own', () => {
+    expect(SECTION_LABEL.MAINTENANCE).toBe('Maintenance');
   });
 });
